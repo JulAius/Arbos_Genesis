@@ -47,9 +47,10 @@ Supported values are `codex`, `anthropic`, `openrouter`, `opencode`, and `chutes
 
 ```sh
 # Install Codex CLI if you use PROVIDER=codex or FALLBACK_PROVIDER=codex
-# npm install -g codex-cli
+npm install -g codex-cli
+
 # Then authenticate once:
-# codex login
+codex login
 
 # Install Claude Code CLI if you use PROVIDER=anthropic or FALLBACK_PROVIDER=anthropic
 curl -fsSL https://claude.ai/install.sh | bash
