@@ -1348,7 +1348,7 @@ def _codex_cmd(prompt: str, model: str | None = None) -> list[str]:
     return [
         "codex", "exec",
         "--json",
-        "--full-auto",
+        "--dangerously-bypass-approvals-and-sandbox",
         "--cd", str(WORKING_DIR),
         "--model", model or _active_model(),
         "--skip-git-repo-check",
@@ -1357,6 +1357,8 @@ def _codex_cmd(prompt: str, model: str | None = None) -> list[str]:
 
 
 def _extract_prompt(cmd: list[str]) -> str:
+    if cmd and cmd[0] == "codex" and len(cmd) > 1:
+        return cmd[-1]
     if "-p" in cmd:
         idx = cmd.index("-p")
         if idx + 1 < len(cmd):
