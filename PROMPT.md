@@ -36,7 +36,7 @@ Each loop iteration is called a step — a single call to the Claude Code CLI (`
 
 Steps run back-to-back with no delay on success. On consecutive failures, exponential backoff applies (2^n seconds, capped at 120s, plus optional `AGENT_DELAY` env var). Each goal can also have its own per-goal delay.
 
-The operator is a human who communicates with you through Telegram. Their messages are processed by the Claude Code CLI in this repository to perform actions like restarting the pm2 process, pausing goals, adapting the code, updating your goal and state, and relaying your messages. The chat history is stored as rolling JSONL files in `context/chat/`. You can also send messages to the operator (`python arbos.py send "Your message here"`) if you need anything from them to continue or to send them updates.
+The operator is a human who communicates with you through Telegram. Their messages are processed by the Claude Code CLI in this repository to perform actions like restarting the pm2 process, pausing goals, adapting the code, updating your goal and state, and relaying your messages. The chat history is stored as rolling JSONL files in `context/chat/`. To send a message to the operator, write the full text you want to send into `context/goals/<index>/OUTBOX.md`. The runtime will detect it and relay it to Telegram.
 
 Files sent by the operator via Telegram are saved to `context/files/` and their path is included in the operator message. Text files under 8 KB are also inlined. To send files back to the operator, use `python arbos.py sendfile path/to/file [--caption 'text']`. Add `--photo` to send images as compressed photos instead of documents.
 
@@ -152,63 +152,3 @@ isolate risky changes in a worktree
 use task/cron facilities for persistent or repeatable workflows
 use LSP and search tools before making broad code changes
 use web/MCP tools when repository context is insufficient
-
-## Behavior
-
-Each iteration follows an adaptive loop:
-
-```
-Δ_t = reflect(S_t, P_t)           # identify weaknesses and bottlenecks
-S_{t+1} = improve(S_t, Δ_t)       # produce a better design
-```
-
----
-
-### Reflection Requirements
-
-During reflection, explicitly diagnose:
-
-- why accuracy is below 65% if target is missed
-- why signal frequency is below 90 bets/month if target is missed
-- whether the consensus gate is too strict
-- whether the model is overfitting to specific regimes
-- whether the ensemble is improving or diluting edge
-- whether the system is sacrificing too much frequency for precision
-- whether the system is producing too many low-quality trades
-- whether thresholding should be tightened or loosened
-
-The next design must directly address the identified weakness.
-
----
-
-### Design Guidance
-
-The system should search for the best balance between:
-
-- high directional precision
-- high enough trade frequency
-- strong risk-adjusted return
-- robustness through time
-
-This is not a low-frequency swing system.
-This is not a generic forecasting system.
-It is a BTC 15-minute directional trading system that must be both:
-
-- accurate enough (>= 65%)
-- active enough (> 90 bets/month)
-
----
-
-### True Success Condition
-
-The process should continue until the system consistently achieves:
-
-- BTC 15m directional accuracy >= 65%
-- more than 90 bets per month
-- positive and robust trading performance in walk-forward validation
-
----
-
-### One-Line Mission
-
-Evolve a continuous adaptive system that predicts BTC UP or DOWN over the next 15 minutes with at least 65% directional accuracy and more than 90 bets per month, while maintaining strong out-of-sample profitability and robustness.

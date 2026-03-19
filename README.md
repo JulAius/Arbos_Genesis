@@ -2,7 +2,7 @@
 
 <p align="center">
   Arbos is a <a href="https://ghuntley.com/loop/">Ralph-loop</a> combined with a Telegram bot.<br>
-  It loops a goal through Claude Code, powered by Anthropic with a configurable fallback (OpenRouter or OpenCode).
+  It loops a goal through a coding agent CLI, with configurable primary and fallback providers.
 </p>
 
 ## The Design
@@ -21,32 +21,48 @@ Arbos loops a `GOAL.md` through a coding agent, step after step, with no memory 
 
 | Priority | Provider | Model | Auth |
 |----------|----------|-------|------|
-| Primary | **Anthropic** | `claude-sonnet-4-6` | Claude Code Pro (OAuth) |
-| Fallback A | **OpenRouter** | `stepfun/step-3.5-flash:free` | API key |
-| Fallback B | **OpenCode** | `minimax-m2.5-free` | OpenCode API key |
+| Main or Fallback | **Codex** | `gpt-5.3-codex` | `codex login` |
+| Main or Fallback | **Anthropic** | `claude-sonnet-4-6` | `claude login` |
+| Main or Fallback | **OpenRouter** | `stepfun/step-3.5-flash:free` | API key |
+| Main or Fallback | **OpenCode** | `minimax-m2.5-free` | API key |
+| Main or Fallback | **Chutes** | `moonshotai/Kimi-K2.5-TEE` | API key |
 
-When the Anthropic quota is exceeded, Arbos automatically switches to the configured fallback. Set `FALLBACK_PROVIDER=openrouter` or `FALLBACK_PROVIDER=opencode` in `.env`. At each new step, it retries Anthropic first.
+Arbos lets you choose both:
+
+- the main provider with `PROVIDER=...`
+- the fallback provider with `FALLBACK_PROVIDER=...`
+
+Supported values are `codex`, `anthropic`, `openrouter`, `opencode`, and `chutes`.
 
 ## Requirements
 
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code): `curl -fsSL https://claude.ai/install.sh | bash` — then `claude login` (Pro auth)
+- [Codex CLI](https://developers.openai.com/codex/) if you use `codex` as main or fallback provider
+- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) if you use `anthropic` as main or fallback provider
+- [OpenCode CLI](https://opencode.ai) if you use `opencode` as main or fallback provider
 - [Telegram Bot token](https://core.telegram.org/bots#how-do-i-create-a-bot)
-- Fallback: [OpenRouter API key](https://openrouter.ai) or [OpenCode CLI](https://opencode.ai) (`curl -fsSL https://opencode.ai/install | bash`) + API key
+- API keys if you use `openrouter`, `opencode`, or `chutes`
 - Python 3.10+, `pm2`
 
 ## Getting started
 
 ```sh
-# Install Claude Code CLI (required)
+# Install Codex CLI if you use PROVIDER=codex or FALLBACK_PROVIDER=codex
+# Then authenticate once:
+# codex login
+
+# Install Claude Code CLI if you use PROVIDER=anthropic or FALLBACK_PROVIDER=anthropic
 curl -fsSL https://claude.ai/install.sh | bash
 
-# Install OpenCode CLI (optional, for FALLBACK_PROVIDER=opencode)
+# Install OpenCode CLI (optional if using PROVIDER=opencode or FALLBACK_PROVIDER=opencode)
 curl -fsSL https://opencode.ai/install | bash
 
 git clone https://github.com/JulAius/arbos_genesis.git
 cd arbos_genesis
 cp .env.example .env
-# Edit .env with your tokens
+# Edit .env:
+# - choose one PROVIDER
+# - choose one FALLBACK_PROVIDER
+# - fill only the credentials you actually need
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r <(grep -oP '"\K[^"]+' pyproject.toml | head -20) 2>/dev/null || pip install requests httpx uvicorn fastapi pyTelegramBotAPI python-dotenv cryptography
 pm2 start .arbos-launch.sh --name arbos
@@ -74,35 +90,44 @@ Build a trading system that predicts BTC direction on a 15-minute horizon.
 
 ## How it works
 
-1. Each **step** is a single `claude -p` invocation with full tool access
+1. Each **step** is a single agent CLI invocation with full tool access
 2. Steps run back-to-back on success, with exponential backoff on failure
 3. `STATE.md` is the only memory between steps — if it's not written there, it's forgotten
 4. The Telegram bot relays operator messages and streams agent responses
-5. SIGINT/SIGTERM are handled gracefully — no crash restarts
+5. Goal agents can message the operator by writing to `context/goals/<index>/OUTBOX.md`; the runtime relays that text to Telegram
+6. SIGINT/SIGTERM are handled gracefully — no crash restarts
 
 ## Configuration
 
-See `.env.example` for all options:
+See `.env.example` for the full version. The important rule is:
+
+1. Choose exactly one main provider with `PROVIDER=...`
+2. Choose exactly one fallback provider with `FALLBACK_PROVIDER=...`
+3. Set the matching model variables
+4. Fill only the credentials required by those choices
+
+Example:
 
 ```env
-PROVIDER=anthropic              # primary provider
-CLAUDE_MODEL=claude-sonnet-4-6  # primary model
+PROVIDER=codex
+CODEX_MODEL=gpt-5.3-codex
 
-# Fallback A: OpenRouter (Claude Code CLI + OpenRouter)
-FALLBACK_PROVIDER=openrouter
-FALLBACK_MODEL=stepfun/step-3.5-flash:free
-OPENROUTER_API_KEY=sk-or-...    # required for openrouter fallback
-
-# Fallback B: OpenCode (config from .env — opencode.json optional)
 FALLBACK_PROVIDER=opencode
 FALLBACK_MODEL=minimax-m2.5-free
-OPENCODE_API_KEY=...             # required for opencode fallback
+OPENCODE_API_KEY=...
 
-TAU_BOT_TOKEN=...               # Telegram bot token
-TELEGRAM_OWNER_ID=...           # your Telegram user ID
-AUTO_PUSH=true                  # enable agent-triggered auto-push
-GITHUB_TOKEN=ghp_...            # GitHub token for auto-push
+TAU_BOT_TOKEN=...
+TELEGRAM_OWNER_ID=...
+AUTO_PUSH=true
+GITHUB_TOKEN=ghp_...
 ```
+
+Other valid combinations:
+
+- `PROVIDER=anthropic` with `FALLBACK_PROVIDER=openrouter`
+- `PROVIDER=codex` with `FALLBACK_PROVIDER=codex`
+- `PROVIDER=opencode` with `FALLBACK_PROVIDER=codex`
+- `PROVIDER=chutes` with `FALLBACK_PROVIDER=opencode`
 
 ## Auto-push
 

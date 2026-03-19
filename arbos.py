@@ -239,6 +239,22 @@ elif PROVIDER == "openrouter":
     COST_PER_M_OUTPUT = float(os.environ.get("COST_PER_M_OUTPUT", "25.00"))
     CHUTES_ROUTING_AGENT = CLAUDE_MODEL
     CHUTES_ROUTING_BOT = CLAUDE_MODEL
+elif PROVIDER == "codex":
+    CLAUDE_MODEL = os.environ.get("CODEX_MODEL", os.environ.get("CLAUDE_MODEL", "gpt-5.3-codex"))
+    LLM_API_KEY = ""
+    LLM_BASE_URL = ""
+    COST_PER_M_INPUT = float(os.environ.get("COST_PER_M_INPUT", "0"))
+    COST_PER_M_OUTPUT = float(os.environ.get("COST_PER_M_OUTPUT", "0"))
+    CHUTES_ROUTING_AGENT = CLAUDE_MODEL
+    CHUTES_ROUTING_BOT = CLAUDE_MODEL
+elif PROVIDER == "opencode":
+    CLAUDE_MODEL = os.environ.get("OPENCODE_MODEL", os.environ.get("CLAUDE_MODEL", "minimax-m2.5-free"))
+    LLM_API_KEY = os.environ.get("OPENCODE_API_KEY", "")
+    LLM_BASE_URL = ""
+    COST_PER_M_INPUT = float(os.environ.get("COST_PER_M_INPUT", "0"))
+    COST_PER_M_OUTPUT = float(os.environ.get("COST_PER_M_OUTPUT", "0"))
+    CHUTES_ROUTING_AGENT = CLAUDE_MODEL
+    CHUTES_ROUTING_BOT = CLAUDE_MODEL
 else:
     CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "moonshotai/Kimi-K2.5-TEE")
     CHUTES_BASE_URL = os.environ.get("CHUTES_BASE_URL", "https://llm.chutes.ai/v1")
@@ -272,6 +288,7 @@ _using_fallback = False
 _tls = threading.local()
 _log_lock = threading.Lock()
 _chatlog_lock = threading.Lock()
+_outbox_lock = threading.Lock()
 _pending_env_lock = threading.Lock()
 _shutdown = threading.Event()
 _claude_semaphore = threading.Semaphore(MAX_CONCURRENT)
@@ -319,6 +336,12 @@ def _state_file(index: int) -> Path:
 
 def _inbox_file(index: int) -> Path:
     return _goal_dir(index) / "INBOX.md"
+
+
+def _outbox_file(index: int) -> Path:
+    if index:
+        return _goal_dir(index) / "OUTBOX.md"
+    return CONTEXT_DIR / "OUTBOX.md"
 
 
 def _goal_runs_dir(index: int) -> Path:
@@ -664,6 +687,50 @@ def _send_telegram_photo(file_path: str, caption: str = "", *, target: tuple[str
     except Exception as exc:
         _log(f"telegram photo send failed: {str(exc)[:120]}")
         return False
+
+
+def _queue_operator_text(text: str, goal_index: int = 0):
+    outbox = _outbox_file(goal_index)
+    outbox.parent.mkdir(parents=True, exist_ok=True)
+    content = _redact_secrets(text).strip()
+    if not content:
+        return
+    with _outbox_lock:
+        existing = outbox.read_text().strip() if outbox.exists() else ""
+        merged = f"{existing}\n\n{content}".strip() if existing else content
+        outbox.write_text(merged)
+
+
+def _flush_operator_outbox(goal_index: int = 0, *, target: tuple[str, str] | None = None) -> bool:
+    outbox = _outbox_file(goal_index)
+    sending = outbox.with_name(outbox.name + ".sending")
+
+    with _outbox_lock:
+        if sending.exists():
+            sending.unlink(missing_ok=True)
+        if not outbox.exists():
+            return False
+        pending = outbox.read_text().strip()
+        if not pending:
+            outbox.unlink(missing_ok=True)
+            return False
+        outbox.replace(sending)
+
+    text = sending.read_text().strip()
+    if not text:
+        sending.unlink(missing_ok=True)
+        return False
+
+    if _send_telegram_text(text, target=target):
+        sending.unlink(missing_ok=True)
+        return True
+
+    with _outbox_lock:
+        existing = outbox.read_text().strip() if outbox.exists() else ""
+        merged = f"{text}\n\n{existing}".strip() if existing else text
+        outbox.write_text(merged)
+        sending.unlink(missing_ok=True)
+    return False
 
 
 def _download_telegram_file(bot, file_id: str, filename: str) -> Path:
@@ -1237,6 +1304,36 @@ def _try_primary():
 
 # ── Agent runner ─────────────────────────────────────────────────────────────
 
+def _active_provider() -> str:
+    return FALLBACK_PROVIDER if _using_fallback else PROVIDER
+
+
+def _active_model() -> str:
+    return FALLBACK_MODEL if _using_fallback else CLAUDE_MODEL
+
+
+def _uses_claude_cli(provider: str) -> bool:
+    return provider in ("anthropic", "openrouter", "chutes")
+
+
+def _check_codex_login(label: str = "codex") -> None:
+    try:
+        status = subprocess.run(
+            ["codex", "login", "status"],
+            cwd=WORKING_DIR,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception as exc:
+        _log(f"WARNING: {label} login check failed: {str(exc)[:120]}")
+        return
+
+    if status.returncode == 0:
+        _log(f"{label} auth: {status.stdout.strip()}")
+    else:
+        _log(f"WARNING: {label} auth missing — run `codex login` or `codex login --device-auth`")
+
 def _claude_cmd(prompt: str, extra_flags: list[str] | None = None) -> list[str]:
     cmd = ["claude", "-p", prompt]
     if not IS_ROOT:
@@ -1247,13 +1344,37 @@ def _claude_cmd(prompt: str, extra_flags: list[str] | None = None) -> list[str]:
     return cmd
 
 
+def _codex_cmd(prompt: str, model: str | None = None) -> list[str]:
+    return [
+        "codex", "exec",
+        "--json",
+        "--full-auto",
+        "--cd", str(WORKING_DIR),
+        "--model", model or _active_model(),
+        "--skip-git-repo-check",
+        prompt,
+    ]
+
+
+def _extract_prompt(cmd: list[str]) -> str:
+    if "-p" in cmd:
+        idx = cmd.index("-p")
+        if idx + 1 < len(cmd):
+            return cmd[idx + 1]
+    return ""
+
+
 def _write_claude_settings():
     """Point Claude Code at the active provider."""
     settings_dir = WORKING_DIR / ".claude"
     settings_dir.mkdir(exist_ok=True)
 
-    provider = FALLBACK_PROVIDER if _using_fallback else PROVIDER
-    model = FALLBACK_MODEL if _using_fallback else CLAUDE_MODEL
+    provider = _active_provider()
+    model = _active_model()
+
+    if not _uses_claude_cli(provider):
+        _log(f"skipping .claude/settings.local.json for provider={provider}")
+        return
 
     if provider == "anthropic":
         env_block = {}
@@ -1305,7 +1426,7 @@ def _claude_env(goal_index: int = 0) -> dict[str, str]:
     if goal_index:
         env["ARBOS_GOAL_INDEX"] = str(goal_index)
 
-    provider = FALLBACK_PROVIDER if _using_fallback else PROVIDER
+    provider = _active_provider()
 
     if provider == "anthropic":
         env.pop("ANTHROPIC_API_KEY", None)
@@ -1341,6 +1462,7 @@ def _run_claude_once(cmd, env, on_text=None, on_activity=None):
     with _child_procs_lock:
         _child_procs.add(proc)
 
+    active_provider = _active_provider()
     result_text = ""
     complete_texts: list[str] = []
     streaming_tokens: list[str] = []
@@ -1389,7 +1511,7 @@ def _run_claude_once(cmd, env, on_text=None, on_activity=None):
                         tool_name = block.get("name", "")
                         tool_input = block.get("input", {})
                         on_activity(_format_tool_activity(tool_name, tool_input))
-                if PROVIDER == "openrouter":
+                if active_provider == "openrouter":
                     u = msg.get("usage", {})
                     if u:
                         with _token_lock:
@@ -1404,7 +1526,7 @@ def _run_claude_once(cmd, env, on_text=None, on_activity=None):
                         on_text(item["text"])
             elif etype == "result":
                 result_text = evt.get("result", "")
-                if PROVIDER == "openrouter":
+                if active_provider == "openrouter":
                     u = evt.get("usage", {})
                     if u:
                         with _token_lock:
@@ -1434,11 +1556,104 @@ def _run_claude_once(cmd, env, on_text=None, on_activity=None):
 # ── OpenCode runner ──────────────────────────────────────────────────────────
 
 def _opencode_cmd(model: str | None = None) -> list[str]:
-    m = model or (FALLBACK_MODEL if _using_fallback else CLAUDE_MODEL)
+    m = model or _active_model()
     cmd = ["opencode", "run", "--format", "json"]
     if m:
         cmd.extend(["-m", f"opencode/{m}"])
     return cmd
+
+
+def _codex_activity(evt: dict[str, Any]) -> str | None:
+    if evt.get("type") == "turn.started":
+        return "thinking..."
+    item = evt.get("item", {})
+    if not isinstance(item, dict):
+        return None
+    item_type = item.get("type", "")
+    if item_type in ("agent_message", "reasoning", ""):
+        return None
+    label = item.get("title") or item.get("name") or item_type.replace("_", " ")
+    return str(label)[:80] if label else None
+
+
+def _run_codex_once(cmd, env, on_text=None, on_activity=None):
+    """Run a single codex subprocess, return (returncode, result_text, raw_lines, stderr)."""
+    proc = subprocess.Popen(
+        cmd, cwd=WORKING_DIR, env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, bufsize=1,
+    )
+    with _child_procs_lock:
+        _child_procs.add(proc)
+
+    result_text = ""
+    complete_texts: list[str] = []
+    raw_lines: list[str] = []
+    timed_out = False
+    last_activity = time.monotonic()
+
+    sel = selectors.DefaultSelector()
+    sel.register(proc.stdout, selectors.EVENT_READ)
+
+    try:
+        while True:
+            ready = sel.select(timeout=min(CLAUDE_TIMEOUT, 30))
+            if not ready:
+                if time.monotonic() - last_activity > CLAUDE_TIMEOUT:
+                    _log(f"codex timeout: no output for {CLAUDE_TIMEOUT}s, killing pid={proc.pid}")
+                    proc.kill()
+                    timed_out = True
+                    break
+                if proc.poll() is not None:
+                    break
+                continue
+            line = proc.stdout.readline()
+            if not line:
+                break
+            last_activity = time.monotonic()
+            raw_lines.append(line)
+            try:
+                evt = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            status = _codex_activity(evt)
+            if status and on_activity:
+                on_activity(status)
+
+            etype = evt.get("type", "")
+            if etype == "item.completed":
+                item = evt.get("item", {})
+                if item.get("type") == "agent_message" and item.get("text"):
+                    result_text = item["text"]
+                    complete_texts.append(result_text)
+                    if on_text:
+                        on_text(result_text)
+            elif etype == "turn.completed":
+                usage = evt.get("usage", {})
+                if usage:
+                    with _token_lock:
+                        _token_usage["input"] += usage.get("input_tokens", 0)
+                        _token_usage["output"] += usage.get("output_tokens", 0)
+            elif etype == "error" and evt.get("message"):
+                result_text = evt["message"]
+    finally:
+        sel.unregister(proc.stdout)
+        sel.close()
+
+    if not result_text and complete_texts:
+        result_text = complete_texts[-1]
+
+    if timed_out:
+        stderr_output = "(timed out)"
+    else:
+        stderr_output = proc.stderr.read() if proc.stderr else ""
+
+    returncode = proc.wait()
+    with _child_procs_lock:
+        _child_procs.discard(proc)
+    return returncode, result_text, raw_lines, stderr_output
 
 
 def _run_opencode_once(cmd, env, on_text=None, on_activity=None, prompt: str = ""):
@@ -1543,10 +1758,12 @@ def run_agent(cmd: list[str], phase: str, output_file: Path,
         returncode, result_text, raw_lines, stderr_output = 1, "", [], "no attempts made"
 
         for attempt in range(1, MAX_RETRIES + 1):
-            use_opencode = _using_fallback and FALLBACK_PROVIDER == "opencode"
+            active_provider = _active_provider()
+            use_opencode = active_provider == "opencode"
+            use_codex = active_provider == "codex"
 
             if use_opencode:
-                prompt_text = cmd[cmd.index("-p") + 1] if "-p" in cmd else ""
+                prompt_text = _extract_prompt(cmd)
                 active_cmd = _opencode_cmd()
                 env = os.environ.copy()
                 env.pop("TAU_BOT_TOKEN", None)
@@ -1560,6 +1777,13 @@ def run_agent(cmd: list[str], phase: str, output_file: Path,
                 }
                 env["OPENCODE_CONFIG_CONTENT"] = json.dumps(opencode_config)
                 engine = "opencode"
+            elif use_codex:
+                prompt_text = _extract_prompt(cmd)
+                active_cmd = _codex_cmd(prompt_text)
+                env = os.environ.copy()
+                env.pop("TAU_BOT_TOKEN", None)
+                env["PYTHONUNBUFFERED"] = "1"
+                engine = "codex"
             else:
                 prompt_text = ""
                 active_cmd = cmd
@@ -1572,6 +1796,10 @@ def run_agent(cmd: list[str], phase: str, output_file: Path,
             if use_opencode:
                 returncode, result_text, raw_lines, stderr_output = _run_opencode_once(
                     active_cmd, env, on_text=on_text, on_activity=on_activity, prompt=prompt_text,
+                )
+            elif use_codex:
+                returncode, result_text, raw_lines, stderr_output = _run_codex_once(
+                    active_cmd, env, on_text=on_text, on_activity=on_activity,
                 )
             else:
                 returncode, result_text, raw_lines, stderr_output = _run_claude_once(
@@ -1666,13 +1894,15 @@ def run_step(prompt: str, step_number: int, goal_index: int = 0, goal_step: int 
 
     def _on_activity(status: str):
         _last_activity[0] = status
+        _flush_operator_outbox(goal_index=goal_index, target=target)
         elapsed_s = time.monotonic() - t0
         inp, out = _get_tokens()
         tok = f" | {fmt_tokens(inp, out, elapsed_s)}" if (inp or out) else ""
         _edit_step_msg(f"{step_label} ({fmt_duration(elapsed_s)}{tok})\n{status}")
 
     def _heartbeat():
-        while not _heartbeat_stop.wait(timeout=10):
+        while not _heartbeat_stop.wait(timeout=5):
+            _flush_operator_outbox(goal_index=goal_index, target=target)
             elapsed_s = time.monotonic() - t0
             inp, out = _get_tokens()
             tok = f" | {fmt_tokens(inp, out, elapsed_s)}" if (inp or out) else ""
@@ -1701,6 +1931,7 @@ def run_step(prompt: str, step_number: int, goal_index: int = 0, goal_step: int 
         rollout_text = _redact_secrets(extract_text(result))
         (run_dir / "rollout.md").write_text(rollout_text)
         _log(f"rollout saved ({len(rollout_text)} chars)")
+        _flush_operator_outbox(goal_index=goal_index, target=target)
 
         elapsed = time.monotonic() - t0
         success = result.returncode == 0
@@ -1708,6 +1939,7 @@ def run_step(prompt: str, step_number: int, goal_index: int = 0, goal_step: int 
         return success
     finally:
         _heartbeat_stop.set()
+        _flush_operator_outbox(goal_index=goal_index, target=target)
         fh = getattr(_tls, "log_fh", None)
         if fh:
             fh.close()
@@ -1940,6 +2172,8 @@ def _summarize_goal(text: str) -> str:
             url = f"{LLM_BASE_URL}/v1/chat/completions"
             headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
             model = CLAUDE_MODEL
+        elif PROVIDER in ("codex", "opencode"):
+            raise RuntimeError(f"goal summarization via {PROVIDER} CLI is not supported")
         else:
             url = f"{CHUTES_BASE_URL}/chat/completions"
             headers = _chutes_headers()
@@ -2051,7 +2285,7 @@ def _build_operator_prompt(user_text: str) -> str:
         "- **Set env variable**: write `KEY='VALUE'` lines (one per line) to `context/.env.pending`. They are picked up automatically and persisted.\n"
         "- **View logs**: read files in `context/goals/<index>/runs/<timestamp>/` (rollout.md, logs.txt).\n"
         "- **Modify code & restart**: edit code files, then run `touch .restart`.\n"
-        "- **Send follow-up**: run `python arbos.py send \"your text here\"`.\n"
+        "- **Send follow-up**: write the full message text to `context/OUTBOX.md`. The runtime will relay it to Telegram.\n"
         "- **Send file to operator**: run `python arbos.py sendfile path/to/file [--caption 'text'] [--photo]`.\n"
         "- **Received files**: operator-sent files are saved in `context/files/` and their path is shown in the message.",
     ]
@@ -2126,8 +2360,14 @@ def _format_tool_activity(tool_name: str, tool_input: dict) -> str:
 
 def run_agent_streaming(bot, prompt: str, chat_id: int) -> str:
     """Run Claude Code CLI and stream output into a Telegram message."""
-    if PROVIDER in ("openrouter", "anthropic"):
+    active_provider = _active_provider()
+
+    if active_provider in ("openrouter", "anthropic"):
         cmd = _claude_cmd(prompt)
+    elif active_provider == "codex":
+        cmd = _codex_cmd(prompt)
+    elif active_provider == "opencode":
+        cmd = _opencode_cmd()
     else:
         cmd = _claude_cmd(prompt, extra_flags=["--model", "bot"])
 
@@ -2164,16 +2404,41 @@ def run_agent_streaming(bot, prompt: str, chat_id: int) -> str:
 
     _claude_semaphore.acquire()
     try:
-        env = _claude_env()
+        if active_provider == "codex":
+            env = os.environ.copy()
+            env.pop("TAU_BOT_TOKEN", None)
+            env["PYTHONUNBUFFERED"] = "1"
+        elif active_provider == "opencode":
+            env = os.environ.copy()
+            env.pop("TAU_BOT_TOKEN", None)
+            env["PYTHONUNBUFFERED"] = "1"
+            env["OPENCODE_CONFIG_CONTENT"] = json.dumps({
+                "model": f"opencode/{_active_model()}",
+                "small_model": f"opencode/{_active_model()}",
+                "autoupdate": os.environ.get("OPENCODE_AUTOUPDATE", "false").lower() == "true",
+                "snapshot": os.environ.get("OPENCODE_SNAPSHOT", "false").lower() == "true",
+            })
+        else:
+            env = _claude_env()
 
         for attempt in range(1, MAX_RETRIES + 1):
             current_text = ""
             activity_status = ""
             last_edit = 0.0
 
-            returncode, result_text, raw_lines, stderr_output = _run_claude_once(
-                cmd, env, on_text=_on_text, on_activity=_on_activity,
-            )
+            if active_provider == "codex":
+                returncode, result_text, raw_lines, stderr_output = _run_codex_once(
+                    cmd, env, on_text=_on_text, on_activity=_on_activity,
+                )
+            elif active_provider == "opencode":
+                returncode, result_text, raw_lines, stderr_output = _run_opencode_once(
+                    cmd, env, on_text=_on_text, on_activity=_on_activity, prompt=prompt,
+                )
+            else:
+                returncode, result_text, raw_lines, stderr_output = _run_claude_once(
+                    cmd, env, on_text=_on_text, on_activity=_on_activity,
+                )
+            _flush_operator_outbox()
 
             if result_text.strip():
                 current_text = result_text
@@ -2186,6 +2451,7 @@ def run_agent_streaming(bot, prompt: str, chat_id: int) -> str:
                 continue
             break
 
+        _flush_operator_outbox()
         _edit(current_text, force=True)
 
         if not current_text.strip():
@@ -2734,12 +3000,7 @@ def _kill_stale_claude_procs():
 
 
 def _send_cli(args: list[str]):
-    """CLI entry point: python arbos.py send 'message' [--file path]
-
-    Within a step, all sends are consolidated into a single Telegram message.
-    The first send creates it; subsequent sends edit it by appending.
-    Uses ARBOS_GOAL_INDEX env var to find the per-goal step message file.
-    """
+    """CLI entry point: queue a message for the runtime to send to Telegram."""
     import argparse
     parser = argparse.ArgumentParser(description="Send a Telegram message to the operator")
     parser.add_argument("message", nargs="?", help="Message text to send")
@@ -2755,48 +3016,8 @@ def _send_cli(args: list[str]):
         text = parsed.message
 
     goal_index = int(os.environ.get("ARBOS_GOAL_INDEX", "0"))
-    if goal_index:
-        smf = _step_msg_file(goal_index)
-    else:
-        smf = CONTEXT_DIR / ".step_msg"
-    smf.parent.mkdir(parents=True, exist_ok=True)
-
-    if smf.exists():
-        try:
-            state = json.loads(smf.read_text())
-            msg_id = state["msg_id"]
-            prev_text = state.get("text", "")
-        except (json.JSONDecodeError, KeyError):
-            msg_id = None
-            prev_text = ""
-    else:
-        msg_id = None
-        prev_text = ""
-
-    if msg_id:
-        combined = (prev_text + "\n\n" + text).strip()
-        if _edit_telegram_text(msg_id, combined):
-            smf.write_text(json.dumps({"msg_id": msg_id, "text": combined}))
-            log_chat("bot", combined[:1000])
-            print(f"Edited step message ({len(combined)} chars)")
-        else:
-            new_id = _send_telegram_new(text)
-            if new_id:
-                smf.write_text(json.dumps({"msg_id": new_id, "text": text}))
-                log_chat("bot", text[:1000])
-                print(f"Sent new message ({len(text)} chars)")
-            else:
-                print("Failed to send", file=sys.stderr)
-                sys.exit(1)
-    else:
-        new_id = _send_telegram_new(text)
-        if new_id:
-            smf.write_text(json.dumps({"msg_id": new_id, "text": text}))
-            log_chat("bot", text[:1000])
-            print(f"Sent ({len(text)} chars)")
-        else:
-            print("Failed to send (check TAU_BOT_TOKEN and chat_id.txt)", file=sys.stderr)
-            sys.exit(1)
+    _queue_operator_text(text, goal_index=goal_index)
+    print(f"Queued message for runtime delivery ({len(text)} chars)")
 
 
 def _sendfile_cli(args: list[str]):
@@ -2866,14 +3087,22 @@ def main() -> None:
     _load_goals()
     _log(f"loaded {len(_goals)} goal(s) from goals.json")
 
-    if PROVIDER == "anthropic":
-        if FALLBACK_PROVIDER == "opencode":
-            _log(f"fallback configured: opencode/{FALLBACK_MODEL}")
-        elif not FALLBACK_API_KEY:
-            _log(f"WARNING: OPENROUTER_API_KEY not set — fallback will not work")
-    elif not LLM_API_KEY:
-        key_name = "OPENROUTER_API_KEY" if PROVIDER == "openrouter" else "CHUTES_API_KEY"
-        _log(f"WARNING: {key_name} not set — LLM calls will fail")
+    if FALLBACK_PROVIDER == "opencode":
+        _log(f"fallback configured: opencode/{FALLBACK_MODEL}")
+    elif FALLBACK_PROVIDER == "codex":
+        _log(f"fallback configured: codex/{FALLBACK_MODEL}")
+        _check_codex_login("fallback codex")
+    elif FALLBACK_PROVIDER == "openrouter" and not FALLBACK_API_KEY:
+        _log("WARNING: OPENROUTER_API_KEY not set — fallback will not work")
+
+    if PROVIDER == "codex":
+        _check_codex_login("primary codex")
+    elif PROVIDER == "openrouter" and not LLM_API_KEY:
+        _log("WARNING: OPENROUTER_API_KEY not set — OpenRouter calls will fail")
+    elif PROVIDER == "opencode" and not LLM_API_KEY:
+        _log("WARNING: OPENCODE_API_KEY not set — OpenCode calls may fail")
+    elif PROVIDER not in ("anthropic", "openrouter", "opencode") and not LLM_API_KEY:
+        _log("WARNING: CHUTES_API_KEY not set — LLM calls will fail")
 
     def _handle_shutdown_signal(signum, frame):
         sig_name = "SIGTERM" if signum == signal.SIGTERM else "SIGINT"
