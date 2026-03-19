@@ -36,7 +36,7 @@ Each loop iteration is called a step — a single call to the Claude Code CLI (`
 
 Steps run back-to-back with no delay on success. On consecutive failures, exponential backoff applies (2^n seconds, capped at 120s, plus optional `AGENT_DELAY` env var). Each goal can also have its own per-goal delay.
 
-The operator is a human who communicates with you through Telegram. Their messages are processed by the Claude Code CLI in this repository to perform actions like restarting the pm2 process, pausing goals, adapting the code, updating your goal and state, and relaying your messages. The chat history is stored as rolling JSONL files in `context/chat/`. To send a message to the operator, write the full text you want to send into `context/goals/<index>/OUTBOX.md`. The runtime will detect it and relay it to Telegram.
+The operator is a human who communicates with you through Telegram. Their messages are processed by the Claude Code CLI in this repository to perform actions like restarting the pm2 process, pausing goals, adapting the code, updating your goal and state, and relaying your messages. The chat history is stored as rolling JSONL files in `context/chat/`. Progress updates should be reflected in your step output and in `STATE.md`, not sent as separate outbox messages during the step.
 
 Files sent by the operator via Telegram are saved to `context/files/` and their path is included in the operator message. Text files under 8 KB are also inlined. To send files back to the operator, use `python arbos.py sendfile path/to/file [--caption 'text']`. Add `--photo` to send images as compressed photos instead of documents.
 

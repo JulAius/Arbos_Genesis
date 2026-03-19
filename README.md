@@ -47,6 +47,7 @@ Supported values are `codex`, `anthropic`, `openrouter`, `opencode`, and `chutes
 
 ```sh
 # Install Codex CLI if you use PROVIDER=codex or FALLBACK_PROVIDER=codex
+# npm install -g codex-cli
 # Then authenticate once:
 # codex login
 
@@ -94,7 +95,7 @@ Build a trading system that predicts BTC direction on a 15-minute horizon.
 2. Steps run back-to-back on success, with exponential backoff on failure
 3. `STATE.md` is the only memory between steps — if it's not written there, it's forgotten
 4. The Telegram bot relays operator messages and streams agent responses
-5. Goal agents can message the operator by writing to `context/goals/<index>/OUTBOX.md`; the runtime relays that text to Telegram
+5. Goal progress is surfaced through the step status/final step message in Telegram
 6. SIGINT/SIGTERM are handled gracefully — no crash restarts
 
 ## Configuration

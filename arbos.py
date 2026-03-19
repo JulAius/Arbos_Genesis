@@ -1896,7 +1896,6 @@ def run_step(prompt: str, step_number: int, goal_index: int = 0, goal_step: int 
 
     def _on_activity(status: str):
         _last_activity[0] = status
-        _flush_operator_outbox(goal_index=goal_index, target=target)
         elapsed_s = time.monotonic() - t0
         inp, out = _get_tokens()
         tok = f" | {fmt_tokens(inp, out, elapsed_s)}" if (inp or out) else ""
@@ -1904,7 +1903,6 @@ def run_step(prompt: str, step_number: int, goal_index: int = 0, goal_step: int 
 
     def _heartbeat():
         while not _heartbeat_stop.wait(timeout=5):
-            _flush_operator_outbox(goal_index=goal_index, target=target)
             elapsed_s = time.monotonic() - t0
             inp, out = _get_tokens()
             tok = f" | {fmt_tokens(inp, out, elapsed_s)}" if (inp or out) else ""
@@ -1933,7 +1931,6 @@ def run_step(prompt: str, step_number: int, goal_index: int = 0, goal_step: int 
         rollout_text = _redact_secrets(extract_text(result))
         (run_dir / "rollout.md").write_text(rollout_text)
         _log(f"rollout saved ({len(rollout_text)} chars)")
-        _flush_operator_outbox(goal_index=goal_index, target=target)
 
         elapsed = time.monotonic() - t0
         success = result.returncode == 0
@@ -1941,7 +1938,6 @@ def run_step(prompt: str, step_number: int, goal_index: int = 0, goal_step: int 
         return success
     finally:
         _heartbeat_stop.set()
-        _flush_operator_outbox(goal_index=goal_index, target=target)
         fh = getattr(_tls, "log_fh", None)
         if fh:
             fh.close()
@@ -2303,7 +2299,7 @@ def _build_operator_prompt(user_text: str) -> str:
         "- **Set env variable**: write `KEY='VALUE'` lines (one per line) to `context/.env.pending`. They are picked up automatically and persisted.\n"
         "- **View logs**: read files in `context/goals/<index>/runs/<timestamp>/` (rollout.md, logs.txt).\n"
         "- **Modify code & restart**: edit code files, then run `touch .restart`.\n"
-        "- **Send follow-up**: write the full message text to `context/OUTBOX.md`. The runtime will relay it to Telegram.\n"
+        "- **Send follow-up**: the operator interface answers directly in Telegram; goal steps do not send separate outbox messages.\n"
         "- **Send file to operator**: run `python arbos.py sendfile path/to/file [--caption 'text'] [--photo]`.\n"
         "- **Received files**: operator-sent files are saved in `context/files/` and their path is shown in the message.",
     ]
@@ -2456,8 +2452,6 @@ def run_agent_streaming(bot, prompt: str, chat_id: int) -> str:
                 returncode, result_text, raw_lines, stderr_output = _run_claude_once(
                     cmd, env, on_text=_on_text, on_activity=_on_activity,
                 )
-            _flush_operator_outbox()
-
             if result_text.strip():
                 current_text = result_text
                 break
@@ -2469,7 +2463,6 @@ def run_agent_streaming(bot, prompt: str, chat_id: int) -> str:
                 continue
             break
 
-        _flush_operator_outbox()
         _edit(current_text, force=True)
 
         if not current_text.strip():
