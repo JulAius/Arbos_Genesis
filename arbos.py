@@ -2158,6 +2158,22 @@ def _goal_manager():
 def _summarize_goal(text: str) -> str:
     """Generate a one-line summary of a goal via LLM. Falls back to truncation."""
     try:
+        if PROVIDER == "codex":
+            CONTEXT_DIR.mkdir(parents=True, exist_ok=True)
+            prompt = (
+                "Summarize the user's goal in 8 words or fewer. "
+                "Reply with ONLY the summary.\n\n"
+                f"{text[:500]}"
+            )
+            result = run_agent(
+                _codex_cmd(prompt, model=os.environ.get("CODEX_SUMMARY_MODEL", CLAUDE_MODEL)),
+                phase="summarize",
+                output_file=CONTEXT_DIR / "summary_output.txt",
+            )
+            summary = extract_text(result).strip().strip('"\'.')
+            if result.returncode == 0 and summary:
+                return summary[:80]
+            raise RuntimeError(result.stderr.strip() or "empty Codex summary")
         if PROVIDER == "anthropic":
             or_key = os.environ.get("OPENROUTER_API_KEY", "")
             if FALLBACK_PROVIDER == "opencode" and or_key:
@@ -2174,7 +2190,7 @@ def _summarize_goal(text: str) -> str:
             url = f"{LLM_BASE_URL}/v1/chat/completions"
             headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
             model = CLAUDE_MODEL
-        elif PROVIDER in ("codex", "opencode"):
+        elif PROVIDER == "opencode":
             raise RuntimeError(f"goal summarization via {PROVIDER} CLI is not supported")
         else:
             url = f"{CHUTES_BASE_URL}/chat/completions"
