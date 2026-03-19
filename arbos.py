@@ -1958,7 +1958,8 @@ def _summarize_goal(text: str) -> str:
             data = resp.json()
             choices = data.get("choices", [])
             if choices:
-                summary = choices[0].get("message", {}).get("content", "").strip().strip('"\'.')
+                content = choices[0].get("message", {}).get("content") or ""
+                summary = content.strip().strip('"\'.')
                 if summary:
                     return summary[:80]
     except Exception as exc:
