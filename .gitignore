@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+wheels/
+*.egg-info/
+*.egg
+
+# Virtual environments
+.venv/
+
+# Environment & secrets
+.env
+.env.*
+
+# uv
+uv.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime / state
+.arbos.pid
+.restart
+chat_id.txt
+logs/
+history/
+scratch/
+
+# Context — tracked for persistence
+# context/
+
+# Codex
+.codex-pool/
+.claude/settings.local.json
