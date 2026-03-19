@@ -55,6 +55,9 @@ codex login
 # Install Claude Code CLI if you use PROVIDER=anthropic or FALLBACK_PROVIDER=anthropic
 curl -fsSL https://claude.ai/install.sh | bash
 
+# Then authenticate once:
+claude login
+
 # Install OpenCode CLI (optional if using PROVIDER=opencode or FALLBACK_PROVIDER=opencode)
 curl -fsSL https://opencode.ai/install | bash
 
