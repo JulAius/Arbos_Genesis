@@ -2542,24 +2542,32 @@ def _chi_knowledge_section(*, compact: bool) -> str:
     kdir = WORKING_DIR / "external" / "Chi" / "knowledge"
     rel = "external/Chi/knowledge"
     url = "https://github.com/unconst/Chi/tree/main/knowledge"
+    _epistemic = (
+        "**Epistemic status:** Chi is a **reference curriculum** (terminology, mental models, typical flows)—not "
+        "**absolute truth**. On-chain state, hyperparameters, pallet behavior, and CLI surfaces **drift**. "
+        "For anything time-sensitive or exact, cross-check with read-only `agcli` / `btcli`, live docs, or WebSearch, "
+        "and say when your answer is grounded in Chi YAML vs verified live."
+    )
     if not kdir.is_dir():
         return (
             "## Chi knowledge base\n"
             f"Not on disk (`{rel}/`). Initialize: `git submodule update --init external/Chi` "
-            f"— sources: [{url}]({url}).\n\n"
+            f"— sources: [{url}]({url}).\n"
+            f"{_epistemic}\n\n"
         )
     if compact:
         return (
             "## Chi knowledge base\n"
             f"Bittensor topic YAML lives in **`{rel}/`** ([Chi/knowledge]({url})). "
             "For protocol/subnet/miner/validator questions, **Read** relevant `.yaml` files "
-            f"(start with `{rel}/INDEX.yaml`).\n\n"
+            f"(start with `{rel}/INDEX.yaml`). "
+            f"{_epistemic}\n\n"
         )
     return (
         "## Curated knowledge ([Chi](https://github.com/unconst/Chi))\n"
-        f"Structured YAML packs under **`{rel}/`** are the preferred reference for this deployment. "
-        "Before long answers, consult **`INDEX.yaml`** to pick files, then **Read** those topics. "
-        "Combine with `agcli` / `btcli` (read-only) or WebSearch when the chain or repo changed after the YAML.\n\n"
+        f"Structured YAML under **`{rel}/`** is the **default reference** for concepts and structure—not a "
+        "guarantee of current chain behavior. Consult **`INDEX.yaml`**, then **Read** topic files for framing. "
+        f"{_epistemic}\n\n"
     )
 
 

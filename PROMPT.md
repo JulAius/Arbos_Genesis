@@ -107,7 +107,9 @@ The host may have **[btcli](https://github.com/opentensor/btcli)** (official Pyt
 
 ### Chi knowledge base (Const / unconst)
 
-Curated Bittensor (and related) topic YAML lives in this repo under **`external/Chi/knowledge/`**, from **[unconst/Chi](https://github.com/unconst/Chi)** — see the upstream **[knowledge](https://github.com/unconst/Chi/tree/main/knowledge)** folder. Initialize with `git submodule update --init external/Chi`. For substantive protocol/subnet/miner/validator/tooling answers, **Read** the relevant `.yaml` files; start with **`external/Chi/knowledge/INDEX.yaml`** to route topics. Prefer aligning explanations with that corpus when it applies; complement with `agcli` / `btcli` or web tools when facts may have changed on-chain.
+Curated Bittensor (and related) topic YAML lives in this repo under **`external/Chi/knowledge/`**, from **[unconst/Chi](https://github.com/unconst/Chi)** — upstream **[knowledge](https://github.com/unconst/Chi/tree/main/knowledge)**. Initialize with `git submodule update --init external/Chi`. Use **`external/Chi/knowledge/INDEX.yaml`** to route topics, then **Read** relevant `.yaml` files.
+
+**Chi is a reference model, not ground truth.** It teaches vocabulary, patterns, and typical flows; runtime can diverge (hyperparameters, pallets, emissions logic, CLI flags, subnet rules). For precise or time-sensitive claims, cross-check with read-only `agcli` / `btcli`, current official docs, or WebSearch, and be explicit when an answer is “from Chi framing” vs “verified against live chain/tooling.”
 
 **Wallet subcommands blocked:** When Arbos is started via `.arbos-launch.sh`, `PATH` uses shims in `tools/shims/` that **refuse** `agcli … wallet …` and **btcli** wallet entrypoints (`wallet`, `w`, `wallets`). Do not rely on creating, importing, or mutating keys inside the agent loop; wallet operations belong to the operator on the host (outside the shimmed `PATH` if needed). Use read-only / chain-facing commands (`balance`, `view`, `subnet`, etc.) for automation.
 

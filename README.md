@@ -138,7 +138,7 @@ Bittensor-focused prompts (operator + public Q&A) reference **`external/Chi/know
 git submodule update --init external/Chi
 ```
 
-Agents are instructed to read **`INDEX.yaml`** then topic files with the Read tool when answering protocol questions.
+Agents read **`INDEX.yaml`** then topic YAML for **conceptual reference**; Chi is **not** treated as absolute truth—live chain state and parameters can change, so answers should be cross-checked with tooling/docs when exactness matters.
 
 ## How it works
 
