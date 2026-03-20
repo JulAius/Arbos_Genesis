@@ -12,7 +12,7 @@
 | **Chain CLIs** | [agcli](https://github.com/unconst/agcli) (Rust, `~/.cargo/bin`) and [btcli](https://github.com/opentensor/btcli) (Python, install in **`.venv`**). `.arbos-launch.sh` sets `PATH` so both work under pm2. |
 | **Wallet lockdown** | Shims in `tools/shims/` block `agcli … wallet` and `btcli` `wallet` / `w` / `wallets`; real binaries stay at `~/.cargo/bin/agcli` and `.venv/bin/btcli` if called without shims. |
 | **Chi knowledge** | Submodule `external/Chi` → YAML in `external/Chi/knowledge/`. **Context only**—agents still **run `agcli` / `btcli`** (and docs/web) for real answers; Chi is not the end state. |
-| **Telegram** | Optional **`TELEGRAM_PUBLIC_CHAT_IDS`**: in those groups/supergroups, anyone can ask (text/voice) with a Bittensor + Const-style helper prompt; **`/` commands remain owner-only**. Owner must register with **`/start` in private chat** first. |
+| **Telegram** | **`TELEGRAM_PUBLIC_CHAT_IDS`**: channel **Discussion** group or supergroup — members chat with the bot; answers aim for **precision** via **`agcli`/`btcli`**. **`/`** commands **owner-only**. Owner: **`/start` in private** first. |
 | **Checks** | `./tools/check_agcli.sh`, `./tools/check_btcli.sh` |
 
 `PROMPT.md` documents agent behavior (Chi epistemics, `agcli`/`btcli`, extrinsics → `--help` first).
@@ -59,7 +59,7 @@ git submodule update --init external/Chi
 
 cp .env.example .env
 # Edit .env: PROVIDER, FALLBACK_*, tokens, TAU_BOT_TOKEN, TELEGRAM_OWNER_ID
-# Optional: TELEGRAM_PUBLIC_CHAT_IDS=-100...
+# Optional: TELEGRAM_PUBLIC_CHAT_IDS=-100...  (discussion supergroup if using a channel)
 
 python3 -m venv .venv
 source .venv/bin/activate
