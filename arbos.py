@@ -301,6 +301,11 @@ GOAL_STOP_AFTER_SUCCESS = os.environ.get("GOAL_STOP_AFTER_SUCCESS", "").lower() 
     "true",
     "yes",
 )
+TELEGRAM_QA_FIXED_GOAL = os.environ.get("TELEGRAM_QA_FIXED_GOAL", "").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 AUTO_PUSH_REMOTE = os.environ.get("AUTO_PUSH_REMOTE", "origin")
 AUTO_PUSH_BRANCH = os.environ.get("AUTO_PUSH_BRANCH", "main")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
@@ -417,6 +422,43 @@ def _load_goals():
             last_run=info.get("last_run", ""),
             last_finished=info.get("last_finished", ""),
         )
+
+
+TELEGRAM_QA_GOAL_TEMPLATE = WORKING_DIR / "GOAL_TELEGRAM_BITTENSOR.md"
+
+
+def _telegram_qa_fixed_goal_markdown() -> str:
+    if TELEGRAM_QA_GOAL_TEMPLATE.is_file():
+        return TELEGRAM_QA_GOAL_TEMPLATE.read_text().strip()
+    return (
+        "# Mission fixe — Telegram Bittensor\n\n"
+        "Répondre avec précision aux messages utilisateurs (Telegram), via **agcli** / **btcli** et Chi en contexte.\n"
+    )
+
+
+def _ensure_telegram_qa_fixed_goal():
+    """Seed goal #1 from GOAL_TELEGRAM_BITTENSOR.md when TELEGRAM_QA_FIXED_GOAL is set."""
+    if not TELEGRAM_QA_FIXED_GOAL:
+        return
+    idx = 1
+    gdir = _goal_dir(idx)
+    gdir.mkdir(parents=True, exist_ok=True)
+    _goal_runs_dir(idx).mkdir(parents=True, exist_ok=True)
+    gf = _goal_file(idx)
+    body = _telegram_qa_fixed_goal_markdown()
+    if not gf.exists() or not gf.read_text().strip():
+        gf.write_text(body.rstrip() + "\n")
+        _log(f"TELEGRAM_QA_FIXED_GOAL: seeded context/goals/{idx}/GOAL.md from template")
+    if not _state_file(idx).exists():
+        _state_file(idx).write_text("")
+    if not _inbox_file(idx).exists():
+        _inbox_file(idx).write_text("")
+    summary = "Telegram Bittensor Q&A (fixed)"
+    with _goals_lock:
+        if idx not in _goals:
+            _goals[idx] = GoalState(index=idx, summary=summary)
+            _save_goals()
+            _log(f"TELEGRAM_QA_FIXED_GOAL: registered goal #{idx} in goals.json")
 
 
 def _format_last_time(iso_ts: str) -> str:
@@ -3612,6 +3654,7 @@ def main() -> None:
     GOALS_DIR.mkdir(parents=True, exist_ok=True)
 
     _load_goals()
+    _ensure_telegram_qa_fixed_goal()
     _log(f"loaded {len(_goals)} goal(s) from goals.json")
 
     if FALLBACK_PROVIDER == "opencode":

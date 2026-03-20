@@ -13,6 +13,7 @@
 | **Wallet lockdown** | Shims in `tools/shims/` block `agcli … wallet` and `btcli` `wallet` / `w` / `wallets`; real binaries stay at `~/.cargo/bin/agcli` and `.venv/bin/btcli` if called without shims. |
 | **Chi knowledge** | Submodule `external/Chi` → YAML in `external/Chi/knowledge/`. **Context only**—agents still **run `agcli` / `btcli`** (and docs/web) for real answers; Chi is not the end state. |
 | **Telegram** | **`TELEGRAM_PUBLIC_CHAT_IDS`**: channel **Discussion** group or supergroup — members chat with the bot; answers aim for **precision** via **`agcli`/`btcli`**. **`/`** commands **owner-only**. Owner: **`/start` in private** first. |
+| **Mission fixe** | **`GOAL_TELEGRAM_BITTENSOR.md`** + **`TELEGRAM_QA_FIXED_GOAL=true`** → crée / remplit **`context/goals/1/GOAL.md`** avec l’objectif « répondre aux utilisateurs Telegram » (Bittensor + outils). Le flux **public** reste indépendant ; **`/start 1`** aligne la boucle Ralph sur cette mission. |
 | **Checks** | `./tools/check_agcli.sh`, `./tools/check_btcli.sh` |
 
 `PROMPT.md` documents agent behavior (Chi epistemics, `agcli`/`btcli`, extrinsics → `--help` first).
@@ -60,6 +61,7 @@ git submodule update --init external/Chi
 cp .env.example .env
 # Edit .env: PROVIDER, FALLBACK_*, tokens, TAU_BOT_TOKEN, TELEGRAM_OWNER_ID
 # Optional: TELEGRAM_PUBLIC_CHAT_IDS=-100...  (discussion supergroup if using a channel)
+# Optional: TELEGRAM_QA_FIXED_GOAL=true — seeds goal #1 from GOAL_TELEGRAM_BITTENSOR.md
 
 python3 -m venv .venv
 source .venv/bin/activate
@@ -141,7 +143,7 @@ Use **`INDEX.yaml`** to find YAML **for context** only. **Primary grounding:** r
 1. Each **step** is one agent CLI invocation with tools.
 2. By default, steps run **back-to-back** on success; exponential backoff on repeated failures.
 3. **Ralph step control** (only the `/goal` loop; public group chat is already **one reply per message**):
-   - **`GOAL_STOP_AFTER_SUCCESS=true`** — after a **successful** step, the goal **terminates** until you **`/start <index>`** again (e.g. après Nnouveau message / consigne).
+   - **`GOAL_STOP_AFTER_SUCCESS=true`** — after a **successful** step, the goal **terminates** until you **`/start <index>`** again (e.g. after a new message / instruction).
    - **`GOAL_PAUSE_AFTER_EACH_STEP=true`** — après **chaque** étape (succès ou échec), **pause** jusqu’à **`/start <index>`**.
 4. Only **`STATE.md`** carries memory between steps for a goal.
 5. Telegram streams replies; goal progress also shows in step messages when configured.

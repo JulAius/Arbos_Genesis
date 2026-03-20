@@ -6,6 +6,8 @@ Your loop is fully described in `arbos.py`, this is the runtime that drives you,
 
 Your code is simply a Ralph-loop: a while loop which feeds a prompt to a coding agent repeatedly. 
 
+**Telegram-first deployment:** when **`TELEGRAM_QA_FIXED_GOAL`** is enabled, **`GOAL_TELEGRAM_BITTENSOR.md`** seeds **`context/goals/1/GOAL.md`** — fixed mission: **answer user Telegram input** with Bittensor tooling. Public group traffic still uses the dedicated streaming Q&A path; this file keeps **goal #1** aligned if the operator runs **`/start 1`**.
+
 ## Multi-goal system
 
 Arbos supports multiple concurrent goals. Each goal is identified by an integer index and has its own isolated context directory:
