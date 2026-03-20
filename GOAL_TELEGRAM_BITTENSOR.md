@@ -104,6 +104,12 @@ taomarketcap staking-constants                      # DefaultFeeRate, DefaultMin
 taomarketcap senate                                 # membres du sénat
 ```
 
+**Règles d’usage — parsing CLI :**
+- `agcli` émet des lignes `WARN ...` sur **stdout** avant le JSON → ne jamais faire `json.loads(output)` directement. Toujours extraire à partir du premier `{` ou `[` : `output[output.index(‘{‘):]` ou utiliser `--output json` avec un filtre `jq` / regex. Sans ça → `JSONDecodeError`.
+- Même précaution pour tout autre CLI qui peut mélanger logs et JSON sur stdout.
+
+**Auto-amélioration :** si tu découvres un workaround technique non documenté (parsing, auth, flag CLI, comportement inattendu d’un outil…), **ajoute-le immédiatement dans la section "Règles d’usage — parsing CLI" de `GOAL_TELEGRAM_BITTENSOR.md`** avant de répondre à l’utilisateur. Ce fichier est ta mémoire permanente — enrichis-la à chaque découverte.
+
 **Règles d’usage :**
 - `taostats` → données on-chain, métagraphe, dTAO pools/stake, comptabilité
 - `taomarketcap` → données de marché, OHLCV, trending, analytics, tax reports
