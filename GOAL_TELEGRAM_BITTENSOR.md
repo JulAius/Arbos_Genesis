@@ -21,6 +21,7 @@
 | Prix marché, OHLCV, trending, analytics | `taomarketcap <cmd>` | `taomarketcap --help` + `data_providers/knowledge/taomarketcap.yaml` |
 | Vocabulaire et design patterns subnets | Chi YAML | `external/Chi/knowledge/INDEX.yaml` |
 | Extrinsics (staking, transfer) | `agcli` (avec `--dry-run` d'abord) | `agcli stake --help` |
+| Code source, issues, PRs de repos Bittensor | `gh` (GitHub CLI, authentifié) | `gh --help` |
 
 **Flags agcli pour usage non-interactif :** `--output json --batch --best`
 
