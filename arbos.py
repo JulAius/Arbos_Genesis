@@ -1736,7 +1736,7 @@ def _codex_activity(evt: dict[str, Any]) -> str | None:
     item_type = item.get("type", "")
     if item_type in ("agent_message", "reasoning", ""):
         return None
-    label = item.get("title") or item.get("name") or item_type.replace("_", " ")
+    label = item.get("title") or item.get("name") or item.get("command") or item_type.replace("_", " ")
     return str(label)[:80] if label else None
 
 
@@ -1917,8 +1917,6 @@ def run_agent(cmd: list[str], phase: str, output_file: Path,
               on_text=None, on_activity=None, goal_index: int = 0) -> subprocess.CompletedProcess:
     _claude_semaphore.acquire()
     try:
-        flags = " ".join(a for a in cmd if a.startswith("-"))
-
         returncode, result_text, raw_lines, stderr_output = 1, "", [], "no attempts made"
 
         for attempt in range(1, MAX_RETRIES + 1):
@@ -1964,6 +1962,7 @@ def run_agent(cmd: list[str], phase: str, output_file: Path,
                 env = _claude_env(goal_index=goal_index)
                 engine = "claude"
 
+            flags = " ".join(a for a in active_cmd if a.startswith("-"))
             _log(f"{phase}: starting (attempt={attempt}, engine={engine}) flags=[{flags}]")
             t0 = time.monotonic()
 
