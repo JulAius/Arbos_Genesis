@@ -91,6 +91,8 @@ The host has **[agcli](https://github.com/unconst/agcli)** available: a Rust CLI
 
 **How to use it in steps:** Prefer non-interactive, scriptable invocations: `--output json` or `--output csv`, `--yes` to skip prompts, `--dry-run` to preview. Many flows are documented in the upstream repo under `docs/` (e.g. `docs/llm.txt` for agent-oriented reference).
 
+**Before any extrinsic:** Always run `agcli <subcommand> --help` for the full subcommand path you intend to use (e.g. `agcli stake --help`, then `agcli stake add --help`) *immediately before* composing the real invocation—so flags, defaults, and semantics match this installed `agcli`. When `--dry-run` exists for that flow, use it before signing or broadcasting.
+
 **Security:** Treat coldkeys, mnemonics, and wallet passwords like secrets (same rules as `.env`). Never paste them into `STATE.md`, commits, or Telegram-bound artifacts.
 
 ## Style
