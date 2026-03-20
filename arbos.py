@@ -1606,6 +1606,27 @@ def _run_claude_once(cmd, env, on_text=None, on_activity=None):
 
 # ── Cursor runner ────────────────────────────────────────────────────────────
 
+def _cursor_activity(evt: dict) -> str | None:
+    """Extract a human-readable activity label from a cursor tool_call event."""
+    if evt.get("subtype") != "started":
+        return None
+    tool_call = evt.get("tool_call", {})
+    for tool_type, tool_data in tool_call.items():
+        if not isinstance(tool_data, dict):
+            continue
+        label = _CURSOR_TOOL_LABELS.get(tool_type, tool_type)
+        args = tool_data.get("args", {})
+        desc = (tool_data.get("description") or
+                args.get("command") or
+                args.get("path") or
+                args.get("query") or
+                args.get("url") or "")
+        if desc:
+            return f"{label}: {str(desc)[:80]}"
+        return f"{label}..."
+    return None
+
+
 def _run_cursor_once(cmd, env, on_text=None, on_activity=None):
     """Run a single cursor agent subprocess, return (returncode, result_text, raw_lines, stderr).
 
@@ -1666,16 +1687,9 @@ def _run_cursor_once(cmd, env, on_text=None, on_activity=None):
 
             elif etype == "tool_call":
                 if on_activity and evt.get("subtype") == "started":
-                    tool_call = evt.get("tool_call", {})
-                    desc = ""
-                    for v in tool_call.values():
-                        if isinstance(v, dict):
-                            desc = (v.get("description") or
-                                    v.get("args", {}).get("command", "") or
-                                    str(v)[:80])
-                            break
-                    if desc:
-                        on_activity(str(desc)[:80])
+                    activity = _cursor_activity(evt)
+                    if activity:
+                        on_activity(activity)
 
             elif etype == "result":
                 result_text = evt.get("result", accumulated_text)
@@ -2456,6 +2470,9 @@ def _build_operator_prompt(user_text: str) -> str:
         "The operator communicates with you through Telegram. Be concise and direct.\n"
         "When the operator asks you to do something, do it by modifying the relevant files.\n"
         "When the operator asks a question, answer from the available context.\n\n"
+        f"## Runtime\n\nActive provider: `{_active_provider()}`, model: `{_active_model()}`\n"
+        "To change the model at runtime, write `KEY='value'` to `context/.env.pending` "
+        f"(current key: `{'CURSOR_MODEL' if _active_provider() == 'cursor' else 'CLAUDE_MODEL'}`).\n\n"
         "## Security\n\n"
         "NEVER read, output, or reveal the contents of `.env`, `.env.enc`, or any secret/key/token values.\n"
         "Do not include API keys, passwords, seed phrases, or credentials in any response.\n"
@@ -2516,6 +2533,19 @@ _TOOL_LABELS = {
     "TodoWrite": "planning",
     "Task": "executing",
     "Agent": "executing",
+}
+
+_CURSOR_TOOL_LABELS = {
+    "shellToolCall": "running",
+    "fileReadTool": "reading",
+    "fileWriteTool": "writing",
+    "fileEditTool": "editing",
+    "listDirectoryTool": "listing",
+    "searchTool": "searching",
+    "webSearchTool": "browsing",
+    "webFetchTool": "fetching",
+    "createFileTool": "creating",
+    "deleteFileTool": "deleting",
 }
 
 
@@ -2985,6 +3015,40 @@ def run_bot():
         summary = ", ".join(removed) if removed else "nothing to clear"
         bot.send_message(message.chat.id, f"Cleared: {summary}\nReady for a fresh /goal.")
         _log(f"cleared via /clear command: {summary}")
+
+    @bot.message_handler(commands=["model"])
+    def handle_model(message):
+        uid = message.from_user.id if message.from_user else None
+        if not _is_owner(uid):
+            _reject(message)
+            return
+        parts = message.text.split(maxsplit=1)
+        provider = _active_provider()
+        model = _active_model()
+        if len(parts) < 2 or not parts[1].strip():
+            bot.send_message(
+                message.chat.id,
+                f"Current: `{provider}/{model}`\n\nUsage: `/model <model_name>`\n"
+                f"Run `agent --list-models` or check provider docs for valid names.",
+                parse_mode="Markdown",
+            )
+            return
+        new_model = parts[1].strip()
+        key = {
+            "cursor": "CURSOR_MODEL",
+            "codex": "CODEX_MODEL",
+            "opencode": "OPENCODE_MODEL",
+        }.get(provider, "CLAUDE_MODEL")
+        pending = CONTEXT_DIR / ".env.pending"
+        pending.parent.mkdir(parents=True, exist_ok=True)
+        with open(pending, "a") as f:
+            f.write(f"{key}='{new_model}'\n")
+        bot.send_message(
+            message.chat.id,
+            f"Model queued: `{key}={new_model}`\nWill apply on next restart.",
+            parse_mode="Markdown",
+        )
+        _log(f"/model: queued {key}={new_model}")
 
     @bot.message_handler(commands=["restart"])
     def handle_restart(message):

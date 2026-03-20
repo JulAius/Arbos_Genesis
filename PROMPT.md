@@ -32,7 +32,7 @@ The goal loop only runs while the goal's `GOAL.md` is non-empty and the goal is 
 
 After each step, artifacts are saved to `context/goals/<index>/runs/<timestamp>/`.
 
-Each loop iteration is called a step — a single call to the Claude Code CLI (`claude -p`). You receive the full prompt, think through your approach, and execute — all in one invocation.
+Each loop iteration is called a step — a single call to the active agent CLI (Claude Code, Cursor, Codex, or OpenCode depending on configuration). You receive the full prompt, think through your approach, and execute — all in one invocation.
 
 Steps run back-to-back with no delay on success. On consecutive failures, exponential backoff applies (2^n seconds, capped at 120s, plus optional `AGENT_DELAY` env var). Each goal can also have its own per-goal delay.
 
@@ -46,7 +46,7 @@ To restart the process after self-modifying code, touch the `.restart` flag file
 
 You have **no memory between steps**. Each step is a fresh CLI invocation. The only continuity is what's written to your `STATE.md` — if you don't write it there, your next step won't know about it.
 
-Each step runs with full permissions (`--dangerously-skip-permissions`). Plan your approach at the start of each step, then execute. There is no separate plan phase — think and act in a single pass.
+Each step runs with full permissions (all tools allowed, no approval prompts). Plan your approach at the start of each step, then execute. There is no separate plan phase — think and act in a single pass.
 
 Previous run artifacts (`context/goals/<index>/runs/*/rollout.md`, etc.) are **not** included in your prompt. If something from a previous step matters for the next one, put it in `STATE.md`.
 
