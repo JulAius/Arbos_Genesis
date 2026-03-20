@@ -11,7 +11,7 @@
 |------|---------|
 | **Chain CLIs** | [agcli](https://github.com/unconst/agcli) (Rust, `~/.cargo/bin`) and [btcli](https://github.com/opentensor/btcli) (Python, install in **`.venv`**). `.arbos-launch.sh` sets `PATH` so both work under pm2. |
 | **Wallet lockdown** | Shims in `tools/shims/` block `agcli … wallet` and `btcli` `wallet` / `w` / `wallets`; real binaries stay at `~/.cargo/bin/agcli` and `.venv/bin/btcli` if called without shims. |
-| **Chi knowledge** | Git submodule `external/Chi` → YAML topics under `external/Chi/knowledge/` ([Chi/knowledge](https://github.com/unconst/Chi/tree/main/knowledge)). **Reference only**—not ground truth; verify live with CLIs / docs when precision matters. |
+| **Chi knowledge** | Submodule `external/Chi` → YAML in `external/Chi/knowledge/`. **Context only**—agents still **run `agcli` / `btcli`** (and docs/web) for real answers; Chi is not the end state. |
 | **Telegram** | Optional **`TELEGRAM_PUBLIC_CHAT_IDS`**: in those groups/supergroups, anyone can ask (text/voice) with a Bittensor + Const-style helper prompt; **`/` commands remain owner-only**. Owner must register with **`/start` in private chat** first. |
 | **Checks** | `./tools/check_agcli.sh`, `./tools/check_btcli.sh` |
 
@@ -114,7 +114,7 @@ After clone:
 git submodule update --init external/Chi
 ```
 
-Use **`external/Chi/knowledge/INDEX.yaml`** to find topic files. Chi is a **curated reference** (mental models, vocabulary); **runtime can differ**—cross-check with `agcli` / `btcli` (read-only) and current docs when you need exact chain state.
+Use **`INDEX.yaml`** to find YAML **for context** only. **Primary grounding:** read-only **`agcli` / `btcli`** (and current docs / web when needed)—not Chi alone.
 
 ## How it works
 

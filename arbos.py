@@ -2542,32 +2542,32 @@ def _chi_knowledge_section(*, compact: bool) -> str:
     kdir = WORKING_DIR / "external" / "Chi" / "knowledge"
     rel = "external/Chi/knowledge"
     url = "https://github.com/unconst/Chi/tree/main/knowledge"
+    _workflow = (
+        "**Chi is not an end state**—only **background context** (terms, routes via `INDEX.yaml`, mental models). "
+        "For anything substantive about the network, **default to tools**: read-only `agcli` / `btcli`, plus WebSearch "
+        "or official docs when needed. Use Chi to orient, then **prove or refine** with CLI output / live sources; "
+        "say what came from Chi vs what came from tools."
+    )
     _epistemic = (
-        "**Epistemic status:** Chi is a **reference curriculum** (terminology, mental models, typical flows)—not "
-        "**absolute truth**. On-chain state, hyperparameters, pallet behavior, and CLI surfaces **drift**. "
-        "For anything time-sensitive or exact, cross-check with read-only `agcli` / `btcli`, live docs, or WebSearch, "
-        "and say when your answer is grounded in Chi YAML vs verified live."
+        "YAML can be **stale**; chain, hyperparams, and CLIs **change**—never treat Chi as sufficient on its own."
     )
     if not kdir.is_dir():
         return (
             "## Chi knowledge base\n"
             f"Not on disk (`{rel}/`). Initialize: `git submodule update --init external/Chi` "
             f"— sources: [{url}]({url}).\n"
-            f"{_epistemic}\n\n"
+            f"{_workflow} {_epistemic}\n\n"
         )
     if compact:
         return (
             "## Chi knowledge base\n"
-            f"Bittensor topic YAML lives in **`{rel}/`** ([Chi/knowledge]({url})). "
-            "For protocol/subnet/miner/validator questions, **Read** relevant `.yaml` files "
-            f"(start with `{rel}/INDEX.yaml`). "
-            f"{_epistemic}\n\n"
+            f"YAML in **`{rel}/`** ([Chi/knowledge]({url})); optional **Read** via `{rel}/INDEX.yaml`. "
+            f"{_workflow} {_epistemic}\n\n"
         )
     return (
         "## Curated knowledge ([Chi](https://github.com/unconst/Chi))\n"
-        f"Structured YAML under **`{rel}/`** is the **default reference** for concepts and structure—not a "
-        "guarantee of current chain behavior. Consult **`INDEX.yaml`**, then **Read** topic files for framing. "
-        f"{_epistemic}\n\n"
+        f"Topic packs under **`{rel}/`** — use **`INDEX.yaml`** only to **pick** files for context. "
+        f"{_workflow} {_epistemic}\n\n"
     )
 
 
@@ -2606,8 +2606,10 @@ def _build_public_bittensor_prompt(user_text: str, user_label: str, chat_title: 
         "## Language\n"
         "Match the user's language when practical (e.g. French in → French out).\n\n"
         "## Tools\n"
-        "You may use Bash with `agcli` / `btcli` when it improves factual answers (read-only queries preferred). "
-        "Wallet create/import subcommands are **blocked** on this host—tell users to manage keys themselves.\n\n"
+        "**Prefer doing the work with tools**, not with Chi alone: run read-only `agcli` / `btcli` whenever the "
+        "question touches chain state, subnets, balances, metagraphs, or operational behavior (see PROMPT.md for "
+        "`--help` / extrinsic discipline). Use Chi YAML only as context; **final answer should lean on CLI output** "
+        "or other live sources when applicable. Wallet create/import subcommands are **blocked** on this host.\n\n"
         "## Security\n"
         "Never read or echo `.env`, API keys, mnemonics, or coldkeys.\n\n"
         f"## Message\n{user_text}"

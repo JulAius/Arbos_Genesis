@@ -107,9 +107,9 @@ The host may have **[btcli](https://github.com/opentensor/btcli)** (official Pyt
 
 ### Chi knowledge base (Const / unconst)
 
-Curated Bittensor (and related) topic YAML lives in this repo under **`external/Chi/knowledge/`**, from **[unconst/Chi](https://github.com/unconst/Chi)** — upstream **[knowledge](https://github.com/unconst/Chi/tree/main/knowledge)**. Initialize with `git submodule update --init external/Chi`. Use **`external/Chi/knowledge/INDEX.yaml`** to route topics, then **Read** relevant `.yaml` files.
+Curated Bittensor (and related) topic YAML lives under **`external/Chi/knowledge/`** ([unconst/Chi](https://github.com/unconst/Chi) — [knowledge tree](https://github.com/unconst/Chi/tree/main/knowledge)). Initialize with `git submodule update --init external/Chi`. **`INDEX.yaml`** helps **route** topics; **Read** relevant `.yaml` files only for **context**.
 
-**Chi is a reference model, not ground truth.** It teaches vocabulary, patterns, and typical flows; runtime can diverge (hyperparameters, pallets, emissions logic, CLI flags, subnet rules). For precise or time-sensitive claims, cross-check with read-only `agcli` / `btcli`, current official docs, or WebSearch, and be explicit when an answer is “from Chi framing” vs “verified against live chain/tooling.”
+**Chi is not the goal.** It is **not** a substitute for checking the live network. **Default workflow:** skim Chi if useful for vocabulary and framing → then **always** use **`agcli` / `btcli`** (read-only where possible) and, when needed, WebSearch or official docs so answers reflect **current** state and flags. Do not stop at YAML. Say what came from Chi vs from tools.
 
 **Wallet subcommands blocked:** When Arbos is started via `.arbos-launch.sh`, `PATH` uses shims in `tools/shims/` that **refuse** `agcli … wallet …` and **btcli** wallet entrypoints (`wallet`, `w`, `wallets`). Do not rely on creating, importing, or mutating keys inside the agent loop; wallet operations belong to the operator on the host (outside the shimmed `PATH` if needed). Use read-only / chain-facing commands (`balance`, `view`, `subnet`, etc.) for automation.
 
