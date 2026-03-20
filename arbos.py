@@ -291,6 +291,11 @@ else:
 FALLBACK_BASE_URL = "https://openrouter.ai/api" if FALLBACK_PROVIDER == "openrouter" else os.environ.get("FALLBACK_BASE_URL", "")
 
 AUTO_PUSH = os.environ.get("AUTO_PUSH", "").lower() in ("1", "true", "yes")
+GOAL_PAUSE_AFTER_EACH_STEP = os.environ.get("GOAL_PAUSE_AFTER_EACH_STEP", "").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 AUTO_PUSH_REMOTE = os.environ.get("AUTO_PUSH_REMOTE", "origin")
 AUTO_PUSH_BRANCH = os.environ.get("AUTO_PUSH_BRANCH", "main")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
@@ -2306,6 +2311,20 @@ def _goal_loop(index: int):
             _log(f"goal #{index}: failure #{failures}")
 
         gs.wake.clear()
+
+        if GOAL_PAUSE_AFTER_EACH_STEP:
+            with _goals_lock:
+                gs.paused = True
+                _save_goals()
+            failures = 0
+            _log(
+                f"goal #{index}: auto-paused after step (GOAL_PAUSE_AFTER_EACH_STEP); "
+                f"/start {index} to run the next step",
+            )
+            _send_telegram_text(
+                f"Goal #{index}: step finished — loop paused. Send /start {index} for the next step.",
+            )
+            continue
 
         step_delay = gs.delay + int(os.environ.get("AGENT_DELAY", "0"))
         if failures:

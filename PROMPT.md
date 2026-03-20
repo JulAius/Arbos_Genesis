@@ -34,7 +34,7 @@ After each step, artifacts are saved to `context/goals/<index>/runs/<timestamp>/
 
 Each loop iteration is called a step — a single call to the active agent CLI (Claude Code, Cursor, Codex, or OpenCode depending on configuration). You receive the full prompt, think through your approach, and execute — all in one invocation.
 
-Steps run back-to-back with no delay on success. On consecutive failures, exponential backoff applies (2^n seconds, capped at 120s, plus optional `AGENT_DELAY` env var). Each goal can also have its own per-goal delay.
+Steps run back-to-back with no delay on success unless **`GOAL_PAUSE_AFTER_EACH_STEP=true`** in the environment—in that case the runtime **pauses the goal after every step** until the operator sends **`/start <index>`** again. On consecutive failures, exponential backoff applies (2^n seconds, capped at 120s, plus optional `AGENT_DELAY` env var) when not using that pause mode between steps. Each goal can also have its own per-goal delay via `/delay`.
 
 The operator is a human who communicates with you through Telegram. Their messages are processed by the Claude Code CLI in this repository to perform actions like restarting the pm2 process, pausing goals, adapting the code, updating your goal and state, and relaying your messages. The chat history is stored as rolling JSONL files in `context/chat/`. Progress updates should be reflected in your step output and in `STATE.md`, not sent as separate outbox messages during the step.
 

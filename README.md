@@ -139,10 +139,11 @@ Use **`INDEX.yaml`** to find YAML **for context** only. **Primary grounding:** r
 ## How it works
 
 1. Each **step** is one agent CLI invocation with tools.
-2. Back-to-back steps on success; exponential backoff on failure.
-3. Only **`STATE.md`** carries memory between steps for a goal.
-4. Telegram streams the streaming-handler reply; goal progress also shows in step messages.
-5. Graceful shutdown on SIGINT/SIGTERM.
+2. By default, steps run **back-to-back** on success; exponential backoff on repeated failures.
+3. Set **`GOAL_PAUSE_AFTER_EACH_STEP=true`** in `.env` to **stop after each step**: the goal auto-pauses when the agent run finishes; run **`/start <index>`** for the next step. (The **public group bot** uses one invocation **per member message** already—this flag only affects the **Ralph `/goal` loop**.)
+4. Only **`STATE.md`** carries memory between steps for a goal.
+5. Telegram streams replies; goal progress also shows in step messages when configured.
+6. Graceful shutdown on SIGINT/SIGTERM.
 
 ## Configuration
 
