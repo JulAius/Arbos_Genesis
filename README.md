@@ -44,6 +44,7 @@ Supported values are `codex`, `anthropic`, `openrouter`, `opencode`, `cursor`, a
 - [Telegram Bot token](https://core.telegram.org/bots#how-do-i-create-a-bot)
 - API keys if you use `openrouter`, `opencode`, or `chutes`
 - Python 3.10+, `pm2`
+- **[agcli](https://github.com/unconst/agcli)** (optional but recommended on the `bittensor` branch): Rust 1.75+ and `cargo install --git https://github.com/unconst/agcli` — Bittensor wallet / subnet / chain CLI. `.arbos-launch.sh` prepends `~/.cargo/bin` to `PATH` so the agent sees `agcli` when run under pm2.
 
 ## Getting started
 
@@ -68,6 +69,11 @@ curl https://cursor.com/install -fsS | bash
 # Then authenticate once (browser login):
 agent login
 # Or use CURSOR_API_KEY in .env for key-based auth
+
+# Bittensor / agcli (optional; required for on-chain tooling in prompts on branch bittensor)
+# rustup: https://rustup.rs — then:
+# cargo install --git https://github.com/unconst/agcli
+# ./tools/check_agcli.sh
 
 git clone https://github.com/JulAius/arbos_genesis.git
 cd arbos_genesis

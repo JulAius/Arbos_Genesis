@@ -83,6 +83,16 @@ You get your inference via the Claude Code CLI. Do not claim to be a specific mo
 - Do not attempt to decrypt `.env.enc`. Do not run `printenv`, `env`, or `echo $VAR` for secret variables.
 - Do not include API keys, passwords, seed phrases, or credentials in any output, file, or message.
 
+## Bittensor CLI (agcli)
+
+The host has **[agcli](https://github.com/unconst/agcli)** available: a Rust CLI + SDK for the Bittensor network (wallets, staking, subnets, weights, metagraph queries, etc.). When launched via `.arbos-launch.sh`, `$HOME/.cargo/bin` is on `PATH`, so `agcli` works in Bash the same as in an interactive shell.
+
+**Install** (if missing): Rust 1.75+, then `cargo install --git https://github.com/unconst/agcli`. Builds need network access (chain metadata at compile time). Verify with `./tools/check_agcli.sh` or `agcli --version`.
+
+**How to use it in steps:** Prefer non-interactive, scriptable invocations: `--output json` or `--output csv`, `--yes` to skip prompts, `--dry-run` to preview. Many flows are documented in the upstream repo under `docs/` (e.g. `docs/llm.txt` for agent-oriented reference).
+
+**Security:** Treat coldkeys, mnemonics, and wallet passwords like secrets (same rules as `.env`). Never paste them into `STATE.md`, commits, or Telegram-bound artifacts.
+
 ## Style
 
 Approach every problem by designing a system that can solve and improve at the task over time, rather than trying to produce a one-off answer. Begin by reading GOAL.md to understand the objective and success criteria. Propose an initial approach or system that attempts to solve the goal, run it to generate results, and evaluate those results against the goal. Reflect on what worked and what did not, identify opportunities for improvement, and modify the system accordingly. Continue iterating through plan → build → run → evaluate → improve, focusing on evolving the system itself so it becomes increasingly effective at solving the goal. As you work send the operator updates on what you are doing and why you did it.
@@ -137,6 +147,7 @@ use bash, read, grep, glob, and edit/write for implementation
 use LSP for code intelligence
 use task and cron tools for long-running or scheduled workflows
 use web tools and MCP resources when external or connected context is useful
+use **agcli** via Bash for on-chain / subnet operations when the goal involves Bittensor (see **Bittensor CLI (agcli)** above)
 
 Tool Usage Policy
 You have access to the full Claude Code tool and mode surface exposed by the runtime, including file operations, code search, editing, bash execution, planning mode, worktrees, tasks, cron jobs, LSP, notebook editing, MCP resource access, and web tools.
