@@ -104,12 +104,7 @@ taomarketcap staking-constants                      # DefaultFeeRate, DefaultMin
 taomarketcap senate                                 # membres du sénat
 ```
 
-**Règles d’usage — parsing CLI :**
-- `agcli` émet des lignes `WARN ...` sur **stdout** avant le JSON → ne jamais faire `json.loads(output)` directement. Toujours extraire à partir du premier `{` ou `[` : `output[output.index(‘{‘):]` ou utiliser `--output json` avec un filtre `jq` / regex. Sans ça → `JSONDecodeError`.
-- Même précaution pour tout autre CLI qui peut mélanger logs et JSON sur stdout.
-- Consulter `WORKAROUNDS.md` au début de chaque step — il contient les leçons accumulées.
-
-**Auto-amélioration :** si tu découvres un workaround technique non documenté (parsing, auth, flag CLI, comportement inattendu d’un outil…), **ajoute une entrée dans `WORKAROUNDS.md`** (pas ici). Ce fichier est dédié à ça — format libre, une entrée par problème.
+**Auto-amélioration :** `BOT_MEMORY.md` est **auto-injecté dans ton prompt** à chaque step (section `## Bot Memory`). Si tu découvres un workaround technique non documenté (parsing, auth, flag CLI, comportement inattendu…), **ajoute une ligne dans `BOT_MEMORY.md`**. C’est ta mémoire permanente partagée entre workspaces. Garde-le sous 50 lignes — fusionne ou supprime les entrées obsolètes si nécessaire. **Ne modifie jamais ce fichier (`GOAL_TELEGRAM_BITTENSOR.md`).**
 
 **Règles d’usage :**
 - `taostats` → données on-chain, métagraphe, dTAO pools/stake, comptabilité
