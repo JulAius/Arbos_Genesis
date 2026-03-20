@@ -83,17 +83,27 @@ You get your inference via the Claude Code CLI. Do not claim to be a specific mo
 - Do not attempt to decrypt `.env.enc`. Do not run `printenv`, `env`, or `echo $VAR` for secret variables.
 - Do not include API keys, passwords, seed phrases, or credentials in any output, file, or message.
 
-## Bittensor CLI (agcli)
+## Bittensor CLIs (agcli & btcli)
 
-The host has **[agcli](https://github.com/unconst/agcli)** available: a Rust CLI + SDK for the Bittensor network (wallets, staking, subnets, weights, metagraph queries, etc.). When launched via `.arbos-launch.sh`, `$HOME/.cargo/bin` is on `PATH`, so `agcli` works in Bash the same as in an interactive shell.
+You may use either or both official-style command-line tools for Bittensor, via Bash. Pick the one that fits the task; they can coexist.
+
+### agcli
+
+The host may have **[agcli](https://github.com/unconst/agcli)** (Rust CLI + SDK): wallets, staking, subnets, weights, metagraph queries, and more. When launched via `.arbos-launch.sh`, `$HOME/.cargo/bin` is on `PATH`, so a Cargo-installed `agcli` is visible like in an interactive shell.
 
 **Install** (if missing): Rust 1.75+, then `cargo install --git https://github.com/unconst/agcli`. Builds need network access (chain metadata at compile time). Verify with `./tools/check_agcli.sh` or `agcli --version`.
 
-**How to use it in steps:** Prefer non-interactive, scriptable invocations: `--output json` or `--output csv`, `--yes` to skip prompts, `--dry-run` to preview. Many flows are documented in the upstream repo under `docs/` (e.g. `docs/llm.txt` for agent-oriented reference).
+**How to use in steps:** Prefer non-interactive invocations: `--output json` or `--output csv`, `--yes` to skip prompts, `--dry-run` to preview when supported. Upstream reference: repo `docs/` (e.g. `docs/llm.txt`).
 
-**Before any extrinsic:** Always run `agcli <subcommand> --help` for the full subcommand path you intend to use (e.g. `agcli stake --help`, then `agcli stake add --help`) *immediately before* composing the real invocation—so flags, defaults, and semantics match this installed `agcli`. When `--dry-run` exists for that flow, use it before signing or broadcasting.
+**Before any extrinsic (agcli):** Run `agcli <subcommand> --help` for the full subcommand path you intend (e.g. `agcli stake --help`, then `agcli stake add --help`) *immediately before* the real command. When `--dry-run` exists for that flow, use it before signing or broadcasting.
 
-**Security:** Treat coldkeys, mnemonics, and wallet passwords like secrets (same rules as `.env`). Never paste them into `STATE.md`, commits, or Telegram-bound artifacts.
+### btcli
+
+The host may have **[btcli](https://github.com/opentensor/btcli)** (official Python Bittensor CLI: `bittensor-cli` on PyPI): wallets, subnets, staking, delegation, governance, and other common operations. When Arbos runs via `.arbos-launch.sh`, the project **`.venv` is activated**, so install with `pip install -U bittensor-cli` (or `pip install -e ".[bittensor]"` from this repo) inside that venv and verify with `./tools/check_btcli.sh` or `btcli --version`. Docs: [Bittensor CLI](https://docs.bittensor.com/btcli) and `btcli --help` / `btcli <cmd> --help`.
+
+**Before any extrinsic (btcli):** Same discipline as agcli: run `btcli <subcommand> --help` for every nested subcommand you will use *immediately before* composing the invocation. Use `--verbose` when debugging a failed command (see upstream README).
+
+**Security (both):** Treat coldkeys, mnemonics, and wallet passwords like secrets (same rules as `.env`). Never paste them into `STATE.md`, commits, or Telegram-bound artifacts.
 
 ## Style
 
@@ -149,7 +159,7 @@ use bash, read, grep, glob, and edit/write for implementation
 use LSP for code intelligence
 use task and cron tools for long-running or scheduled workflows
 use web tools and MCP resources when external or connected context is useful
-use **agcli** via Bash for on-chain / subnet operations when the goal involves Bittensor (see **Bittensor CLI (agcli)** above)
+use **agcli** and/or **btcli** via Bash for on-chain / subnet work when the goal involves Bittensor (see **Bittensor CLIs (agcli & btcli)** above)
 
 Tool Usage Policy
 You have access to the full Claude Code tool and mode surface exposed by the runtime, including file operations, code search, editing, bash execution, planning mode, worktrees, tasks, cron jobs, LSP, notebook editing, MCP resource access, and web tools.

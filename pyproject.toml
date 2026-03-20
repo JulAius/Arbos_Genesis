@@ -14,5 +14,10 @@ dependencies = [
     "cryptography",
 ]
 
+[project.optional-dependencies]
+bittensor = [
+    "bittensor-cli",
+]
+
 [tool.setuptools]
 py-modules = ["arbos"]

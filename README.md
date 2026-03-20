@@ -44,7 +44,8 @@ Supported values are `codex`, `anthropic`, `openrouter`, `opencode`, `cursor`, a
 - [Telegram Bot token](https://core.telegram.org/bots#how-do-i-create-a-bot)
 - API keys if you use `openrouter`, `opencode`, or `chutes`
 - Python 3.10+, `pm2`
-- **[agcli](https://github.com/unconst/agcli)** (optional but recommended on the `bittensor` branch): Rust 1.75+ and `cargo install --git https://github.com/unconst/agcli` — Bittensor wallet / subnet / chain CLI. `.arbos-launch.sh` prepends `~/.cargo/bin` to `PATH` so the agent sees `agcli` when run under pm2.
+- **[agcli](https://github.com/unconst/agcli)** (optional, recommended on the `bittensor` branch): Rust 1.75+ and `cargo install --git https://github.com/unconst/agcli` — Rust Bittensor CLI + SDK. `.arbos-launch.sh` prepends `~/.cargo/bin` to `PATH`.
+- **[btcli](https://github.com/opentensor/btcli)** (optional, recommended on the `bittensor` branch): official Python CLI (`pip install -U bittensor-cli`, or `pip install -e ".[bittensor]"` here). With `.arbos-launch.sh`, the project `.venv` is activated first, so installing **`bittensor-cli` inside `.venv`** puts `btcli` on the agent’s `PATH` under pm2.
 
 ## Getting started
 
@@ -70,10 +71,12 @@ curl https://cursor.com/install -fsS | bash
 agent login
 # Or use CURSOR_API_KEY in .env for key-based auth
 
-# Bittensor / agcli (optional; required for on-chain tooling in prompts on branch bittensor)
-# rustup: https://rustup.rs — then:
-# cargo install --git https://github.com/unconst/agcli
-# ./tools/check_agcli.sh
+# Bittensor CLIs (optional; branch bittensor / on-chain goals)
+# agcli — https://rustup.rs then:
+#   cargo install --git https://github.com/unconst/agcli && ./tools/check_agcli.sh
+# btcli — after venv is created and activated:
+#   pip install -U bittensor-cli && ./tools/check_btcli.sh
+#   (or: pip install -e ".[bittensor]")
 
 git clone https://github.com/JulAius/arbos_genesis.git
 cd arbos_genesis
