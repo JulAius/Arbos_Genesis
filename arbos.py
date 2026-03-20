@@ -282,7 +282,12 @@ CLAUDE_TIMEOUT = int(os.environ.get("CLAUDE_TIMEOUT", "3600"))
 
 FALLBACK_PROVIDER = os.environ.get("FALLBACK_PROVIDER", "openrouter")
 FALLBACK_MODEL = os.environ.get("FALLBACK_MODEL", "stepfun/step-3.5-flash:free")
-FALLBACK_API_KEY = os.environ.get("OPENROUTER_API_KEY", "") if FALLBACK_PROVIDER == "openrouter" else os.environ.get("FALLBACK_API_KEY", "")
+if FALLBACK_PROVIDER == "openrouter":
+    FALLBACK_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+elif FALLBACK_PROVIDER == "cursor":
+    FALLBACK_API_KEY = os.environ.get("CURSOR_API_KEY", "")
+else:
+    FALLBACK_API_KEY = os.environ.get("FALLBACK_API_KEY", "")
 FALLBACK_BASE_URL = "https://openrouter.ai/api" if FALLBACK_PROVIDER == "openrouter" else os.environ.get("FALLBACK_BASE_URL", "")
 
 AUTO_PUSH = os.environ.get("AUTO_PUSH", "").lower() in ("1", "true", "yes")
@@ -1355,8 +1360,9 @@ def _check_cursor_login() -> None:
         _log(f"WARNING: cursor agent not found: {str(exc)[:120]}")
         return
 
+    _ansi = re.compile(r'\x1b\[[0-9;?]*[A-Za-z]')
     if status.returncode == 0:
-        info = (status.stdout or status.stderr).strip()
+        info = _ansi.sub('', status.stdout or status.stderr).strip()
         _log(f"cursor agent: {info[:80]}")
     else:
         _log("WARNING: cursor agent not authenticated — run `agent login`")
@@ -2343,7 +2349,17 @@ def _summarize_goal(text: str) -> str:
             headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
             model = CLAUDE_MODEL
         elif PROVIDER in ("opencode", "cursor"):
-            raise RuntimeError(f"goal summarization via {PROVIDER} CLI is not supported")
+            # No REST API — try fallback provider if it has an HTTP endpoint
+            if FALLBACK_PROVIDER == "openrouter" and FALLBACK_API_KEY:
+                url = f"{FALLBACK_BASE_URL}/v1/chat/completions"
+                headers = {"Authorization": f"Bearer {FALLBACK_API_KEY}", "Content-Type": "application/json"}
+                model = FALLBACK_MODEL
+            elif FALLBACK_BASE_URL and FALLBACK_API_KEY:
+                url = f"{FALLBACK_BASE_URL}/v1/chat/completions"
+                headers = {"Authorization": f"Bearer {FALLBACK_API_KEY}", "Content-Type": "application/json"}
+                model = FALLBACK_MODEL
+            else:
+                raise RuntimeError(f"goal summarization via {PROVIDER} CLI is not supported and no fallback API configured")
         else:
             url = f"{CHUTES_BASE_URL}/chat/completions"
             headers = _chutes_headers()
@@ -3178,6 +3194,32 @@ def _kill_stale_claude_procs():
         pass
 
 
+def _kill_stale_agent_procs():
+    """Kill any leftover cursor agent processes from a previous arbos instance.
+
+    Uses `pgrep -f 'agent --print'` instead of pgrep -x to avoid killing
+    unrelated system processes named 'agent'.
+    """
+    my_pid = os.getpid()
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "agent --print"], capture_output=True, text=True, timeout=5,
+        )
+        for line in result.stdout.strip().splitlines():
+            pid = int(line.strip())
+            if pid == my_pid:
+                continue
+            try:
+                os.kill(pid, signal.SIGKILL)
+                _log(f"killed stale agent orphan pid={pid}")
+            except ProcessLookupError:
+                pass
+            except PermissionError:
+                pass
+    except Exception:
+        pass
+
+
 def _send_cli(args: list[str]):
     """CLI entry point: queue a message for the runtime to send to Telegram."""
     import argparse
@@ -3259,6 +3301,8 @@ def main() -> None:
 
     _log(f"arbos starting in {WORKING_DIR} (provider={PROVIDER}, model={CLAUDE_MODEL})")
     _kill_stale_claude_procs()
+    if PROVIDER == "cursor" or FALLBACK_PROVIDER == "cursor":
+        _kill_stale_agent_procs()
     _reload_env_secrets()
     CONTEXT_DIR.mkdir(parents=True, exist_ok=True)
     GOALS_DIR.mkdir(parents=True, exist_ok=True)
@@ -3271,6 +3315,9 @@ def main() -> None:
     elif FALLBACK_PROVIDER == "codex":
         _log(f"fallback configured: codex/{FALLBACK_MODEL}")
         _check_codex_login("fallback codex")
+    elif FALLBACK_PROVIDER == "cursor":
+        _log(f"fallback configured: cursor/{FALLBACK_MODEL}")
+        _check_cursor_login()
     elif FALLBACK_PROVIDER == "openrouter" and not FALLBACK_API_KEY:
         _log("WARNING: OPENROUTER_API_KEY not set — fallback will not work")
 
@@ -3282,7 +3329,7 @@ def main() -> None:
         _log("WARNING: OPENROUTER_API_KEY not set — OpenRouter calls will fail")
     elif PROVIDER == "opencode" and not LLM_API_KEY:
         _log("WARNING: OPENCODE_API_KEY not set — OpenCode calls may fail")
-    elif PROVIDER not in ("anthropic", "openrouter", "opencode") and not LLM_API_KEY:
+    elif PROVIDER == "chutes" and not LLM_API_KEY:
         _log("WARNING: CHUTES_API_KEY not set — LLM calls will fail")
 
     def _handle_shutdown_signal(signum, frame):
