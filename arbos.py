@@ -696,13 +696,6 @@ def load_prompt(goal_index: int, consume_inbox: bool = False, goal_step: int = 0
             parts.append(f"## Inbox\n\n{inbox_text}")
         if consume_inbox:
             inf.write_text("")
-    # Bot-maintained persistent memory (shared across workspaces)
-    bot_memory = WORKING_DIR / "BOT_MEMORY.md"
-    if bot_memory.exists():
-        mem_text = bot_memory.read_text().strip()
-        if mem_text:
-            parts.append(f"## Bot Memory\n\n{mem_text}")
-
     chatlog = load_chatlog()
     if chatlog:
         parts.append(chatlog)

@@ -104,8 +104,6 @@ taomarketcap staking-constants                      # DefaultFeeRate, DefaultMin
 taomarketcap senate                                 # membres du sénat
 ```
 
-**Auto-amélioration :** `BOT_MEMORY.md` est **auto-injecté dans ton prompt** à chaque step (section `## Bot Memory`). Si tu découvres un workaround technique non documenté (parsing, auth, flag CLI, comportement inattendu…), **ajoute une ligne dans `BOT_MEMORY.md`**. C’est ta mémoire permanente partagée entre workspaces. Garde-le sous 50 lignes — fusionne ou supprime les entrées obsolètes si nécessaire. **Ne modifie jamais ce fichier (`GOAL_TELEGRAM_BITTENSOR.md`).**
-
 **Règles d’usage :**
 - `taostats` → données on-chain, métagraphe, dTAO pools/stake, comptabilité
 - `taomarketcap` → données de marché, OHLCV, trending, analytics, tax reports
@@ -113,4 +111,12 @@ taomarketcap senate                                 # membres du sénat
 - Pagination taostats : `--page` / `--limit` → réponse sous clé `data`
 - Pagination taomarketcap : `--limit` / `--offset` → réponse sous clé `results`
 
+**Auto-amélioration :** quand tu découvres un workaround technique (parsing, auth, flag CLI, comportement inattendu d'un outil…), **ajoute une entrée dans la section `## Connaissances techniques` en bas de `GOAL_TELEGRAM_BITTENSOR.md`**. C'est la seule section que tu as le droit de modifier dans ce fichier — ne touche jamais au reste. Format : une ligne par finding, préfixée par `-`.
+
 **Note runtime :** les membres en salon configuré passent par le flux **`/arbos`** (un run agent par message) avec le même **fond de mission** que ce fichier. Ce texte alimente **`context/goals/1/GOAL.md`** lorsque **`TELEGRAM_QA_FIXED_GOAL`** est actif, pour aligner la boucle Ralph (`/start 1`) sur cette mission unique.
+
+## Connaissances techniques
+
+> Section auto-incrémentée par le bot. Ne pas supprimer ce header.
+
+- `agcli` mélange `WARN ...` et JSON sur stdout → parser avec `output[output.index('{'):]` ou `jq`, jamais `json.loads(output)` directement.
