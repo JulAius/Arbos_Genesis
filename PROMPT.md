@@ -103,6 +103,8 @@ The host may have **[btcli](https://github.com/opentensor/btcli)** (official Pyt
 
 **Before any extrinsic (btcli):** Same discipline as agcli: run `btcli <subcommand> --help` for every nested subcommand you will use *immediately before* composing the invocation. Use `--verbose` when debugging a failed command (see upstream README).
 
+**Wallet subcommands blocked:** When Arbos is started via `.arbos-launch.sh`, `PATH` uses shims in `tools/shims/` that **refuse** `agcli … wallet …` and **btcli** wallet entrypoints (`wallet`, `w`, `wallets`). Do not rely on creating, importing, or mutating keys inside the agent loop; wallet operations belong to the operator on the host (outside the shimmed `PATH` if needed). Use read-only / chain-facing commands (`balance`, `view`, `subnet`, etc.) for automation.
+
 **Security (both):** Treat coldkeys, mnemonics, and wallet passwords like secrets (same rules as `.env`). Never paste them into `STATE.md`, commits, or Telegram-bound artifacts.
 
 ## Style

@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Proxy agcli: refuse the top-level `wallet` subcommand (policy). Real binary: ~/.cargo/bin/agcli
+set -euo pipefail
+REAL="${AGCLI_REAL:-$HOME/.cargo/bin/agcli}"
+if [ ! -x "$REAL" ]; then
+	echo "agcli (shim): executable not found: $REAL" >&2
+	exit 127
+fi
+
+_deny() {
+	echo "agcli: subcommand 'wallet' is disabled in this Arbos deployment (security policy)." >&2
+	exit 2
+}
+
+args=("$@")
+i=0
+n=${#args[@]}
+while [ "$i" -lt "$n" ]; do
+	a="${args[$i]}"
+	case "$a" in
+	-n | --network | --endpoint | --wallet-dir | -w | --wallet | --hotkey | --output | --proxy | --log-file | --timeout | --password)
+		if [ $((i + 1)) -ge "$n" ]; then
+			exec "$REAL" "$@"
+		fi
+		i=$((i + 2))
+		;;
+	--network=* | --endpoint=* | --wallet-dir=* | --wallet=* | --hotkey=* | --output=* | --proxy=* | --log-file=* | --timeout=* | --password=* | -w=*)
+		i=$((i + 1))
+		;;
+	--live)
+		if [ $((i + 1)) -lt "$n" ] && [[ "${args[$((i + 1))]}" != -* ]]; then
+			i=$((i + 2))
+		else
+			i=$((i + 1))
+		fi
+		;;
+	-y | --yes | --batch | --pretty | -v | --verbose | --debug | --time | --mev | --dry-run | --best | -h | --help | -V | --version)
+		i=$((i + 1))
+		;;
+	-*)
+		i=$((i + 1))
+		;;
+	*)
+		[ "$a" = "wallet" ] && _deny
+		break
+		;;
+	esac
+done
+exec "$REAL" "$@"

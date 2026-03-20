@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Proxy btcli: refuse wallet commands (wallet, wallets, w). Real binary: repo .venv/bin/btcli
+set -euo pipefail
+_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+REAL="${BTCLI_REAL:-$_REPO/.venv/bin/btcli}"
+if [ ! -x "$REAL" ]; then
+	echo "btcli (shim): executable not found: $REAL" >&2
+	exit 127
+fi
+
+_deny() {
+	echo "btcli: wallet commands are disabled in this Arbos deployment (security policy)." >&2
+	exit 2
+}
+
+args=("$@")
+i=0
+n=${#args[@]}
+while [ "$i" -lt "$n" ]; do
+	a="${args[$i]}"
+	case "$a" in
+	-h | --help | --version | --commands | --debug | --install-completion | --show-completion)
+		i=$((i + 1))
+		;;
+	-*)
+		i=$((i + 1))
+		;;
+	*)
+		case "$a" in
+		wallet | wallets | w) _deny ;;
+		esac
+		break
+		;;
+	esac
+done
+exec "$REAL" "$@"
