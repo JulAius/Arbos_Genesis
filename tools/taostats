@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Taostats API CLI wrapper
+# Usage: taostats <command> [options]
+# See: taostats --help
+
+_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHONPATH="${PYTHONPATH:-${_REPO}}" python3 "${_REPO}/data_providers/taostats.py" "$@"

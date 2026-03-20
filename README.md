@@ -12,9 +12,11 @@
 | **Chain CLIs** | [agcli](https://github.com/unconst/agcli) (Rust, `~/.cargo/bin`) and [btcli](https://github.com/opentensor/btcli) (Python, install in **`.venv`**). `.arbos-launch.sh` sets `PATH` so both work under pm2. |
 | **Wallet lockdown** | Shims in `tools/shims/` block `agcli … wallet` and `btcli` `wallet` / `w` / `wallets`; real binaries stay at `~/.cargo/bin/agcli` and `.venv/bin/btcli` if called without shims. |
 | **Chi knowledge** | Submodule `external/Chi` → YAML in `external/Chi/knowledge/`. **Context only**—agents still **run `agcli` / `btcli`** (and docs/web) for real answers; Chi is not the end state. |
-| **Telegram** | **`TELEGRAM_PUBLIC_CHAT_IDS`**: channel **Discussion** group or supergroup — members chat with the bot; answers aim for **precision** via **`agcli`/`btcli`**. **`/`** commands **owner-only**. Owner: **`/start` in private** first. |
-| **Mission fixe** | **`GOAL_TELEGRAM_BITTENSOR.md`** + **`TELEGRAM_QA_FIXED_GOAL=true`** → crée / remplit **`context/goals/1/GOAL.md`** avec l’objectif « répondre aux utilisateurs Telegram » (Bittensor + outils). Le flux **public** reste indépendant ; **`/start 1`** aligne la boucle Ralph sur cette mission. |
-| **Checks** | `./tools/check_agcli.sh`, `./tools/check_btcli.sh` |
+| **Data providers** | CLI tools `taostats` (network analytics, miner reports) and `taomarketcap` (TAO price, volume, market cap). Set `TAOSTATS_API_KEY` / `TAOMARKETCAP_API_KEY` in `.env`. Knowledge: `data_providers/knowledge/`. |
+| **Telegram** | **`TELEGRAM_PUBLIC_CHAT_IDS`** / **`TELEGRAM_WORKSPACE_GROUP_IDS`**: **members** invoke the agent with **`/arbos`** + question (voice/photo/file need a **caption** starting with `/arbos …`). **Operators** keep normal messages + full **`/`** commands (`TELEGRAM_OWNER_ID` / `TELEGRAM_OWNER_IDS`). Add command **`arbos`** in [@BotFather](https://t.me/BotFather) → Edit bot → Edit commands. Replies are **final text only** unless **`TELEGRAM_STREAMING_UPDATES=true`**. **`GOALS_BACKGROUND_AUTORUN`** defaults **off** when a bot token and group ids are set. Owner: **`/start` in private** first. |
+| **Mission fixe** | **`GOAL_TELEGRAM_BITTENSOR.md`** + **`TELEGRAM_QA_FIXED_GOAL=true`** → **`context/goals/1/GOAL.md`** : une mission stable — répondre avec **tous les outils nécessaires**, **spécialisé Bittensor** et **tout l’écosystème** (même texte que le flux **`/arbos`**). **`/start 1`** aligne la boucle Ralph. |
+| **Checks** | `./tools/check_agcli.sh`, `./tools/check_btcli.sh`, `./tools/check_data_providers.sh` |
+| **Chat log** | **`context/chat/by_user/<id>/`** = fil personnel (réponse alignée sur l’historique de ce user). **`context/chat/group/<chat_id>/`** = miroir **salon** (tous les membres) pour le **contexte** seulement. **`context/chat/*.jsonl`** = journal global Ralph / système. |
 
 `PROMPT.md` documents agent behavior (Chi epistemics, `agcli`/`btcli`, extrinsics → `--help` first).
 
@@ -61,6 +63,7 @@ git submodule update --init external/Chi
 cp .env.example .env
 # Edit .env: PROVIDER, FALLBACK_*, tokens, TAU_BOT_TOKEN, TELEGRAM_OWNER_ID
 # Optional: TELEGRAM_PUBLIC_CHAT_IDS=-100...  (discussion supergroup if using a channel)
+# Optional: TELEGRAM_WORKSPACE_GROUP_IDS=-100...  (Discord-style workspace per supergroup; forum: topic = goal)
 # Optional: TELEGRAM_QA_FIXED_GOAL=true — seeds goal #1 from GOAL_TELEGRAM_BITTENSOR.md
 
 python3 -m venv .venv
@@ -74,12 +77,16 @@ cargo install --git https://github.com/unconst/agcli
 ./tools/check_agcli.sh
 ./tools/check_btcli.sh
 
+# Data provider tools (optional)
+./tools/check_data_providers.sh
+
 pm2 start .arbos-launch.sh --name arbos
 ```
 
-1. Open a **private chat** with the bot and send **`/start`** once (registers owner).
+1. Open a **private chat** with the bot and send **`/start`** once (registers owner). Arbos writes **`chat_id.txt`** (first line = target for **Restarted.** and Ralph status pings); if **`sendMessage` 400** on boot, check pm2 logs for `telegram=` from Telegram’s API, refresh the id (`tools/telegram_chat_ids.py`), or set **`TELEGRAM_RESTART_PING=false`** to skip the boot ping only.
 2. Use **`/goal`**, then **`/start` `<index>`** for the Ralph loop (see commands below).
 3. For a **community group**, set `TELEGRAM_PUBLIC_CHAT_IDS`, add the bot, **BotFather → /setprivacy → Disable**, restart pm2.
+4. For a **team Ralph workspace** in a supergroup (isolated goals on disk), set **`TELEGRAM_WORKSPACE_GROUP_IDS`** to that group’s id. Prefer **forum** supergroups so each `/goal` creates a **topic** (goal id = `message_thread_id`). **`/clear`** in that chat only wipes that workspace folder.
 
 Install steps for each CLI (Codex, Claude, OpenCode, Cursor) match `.env.example` comments and the upstream README.
 
@@ -87,17 +94,22 @@ Install steps for each CLI (Codex, Claude, OpenCode, Cursor) match `.env.example
 
 | Command | Description |
 |---------|-------------|
-| `/start` | Help, or `/start <index>` to run goal #index |
-| `/goal <text>` | Create a new goal |
+| `/start` | Help, or `/start <index>` to run goal #index (workspaces also **auto-start** on `/goal`) |
+| `/goal <text>` | Create a goal; **forum** → new topic (first line = title). Workspace groups: loop starts immediately (Discord parity). |
 | `/ls` | List goals |
 | `/status` [index] | Status (one goal or all) |
-| `/pause <index>` | Pause a goal (resume with `/start <index>`) |
-| `/delay <index> <seconds>` | Per-goal delay |
+| `/pause <index>` | Pause (resume with `/unpause` or `/start`) |
+| `/unpause [index]` | Resume; in a forum **goal topic**, index optional |
+| `/force [index]` | Run next step immediately (skips inter-step delay) |
+| `/delay <index> <delay>` | Delay between steps: seconds, or `2m` / `5min` |
+| `/bash <cmd>` | Shell in `context/workspace/<id>/` or repo root (`shell=True`, 120s) |
+| `/env` | List keys (prefers **owner DM**); `/env KEY VAL`; `/env -d KEY` |
+| `/help` | Contextual help (topic vs main chat) |
+| `/model` | In workspace: `workspace.json` model; else queue `.env.pending` |
 | `/delete <index>` | Delete goal and its folder |
-| `/stop` | Stop all started goals |
-| `/clear` | Wipe context + goals (dangerous) |
-| `/model <name>` | Queue model change via `context/.env.pending` |
-| `/restart` | Touch restart flag (pm2) |
+| `/stop` | Stop all started goals in **this** chat’s workspace (legacy DM/private = all legacy goals) |
+| `/clear` | Legacy chat: wipe full `context/`. **Workspace** supergroup: only `context/workspace/<chat_id>/` |
+| `/restart` | Touch restart flag (pm2); use outside forum topics |
 | `/update` | `git pull` + restart |
 
 ## Telegram — canal / groupe (plusieurs membres)

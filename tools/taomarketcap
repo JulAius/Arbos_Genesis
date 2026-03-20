@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Taomarketcap API CLI wrapper
+# Usage: taomarketcap <command> [options]
+# See: taomarketcap --help
+
+_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHONPATH="${PYTHONPATH:-${_REPO}}" python3 "${_REPO}/data_providers/taomarketcap.py" "$@"

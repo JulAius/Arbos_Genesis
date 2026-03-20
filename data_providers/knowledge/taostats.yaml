@@ -1,0 +1,504 @@
+# Taostats API Reference
+# Tested and verified 2026-03-20 — 168 endpoints (v1.8.52)
+
+base_url: "https://api.taostats.io"
+auth: "Authorization: <key>   # plain key, no 'Bearer' prefix"
+output: "All commands output JSON to stdout"
+openapi: "https://api.taostats.io/api/openapi.json"
+docs: "https://docs.taostats.io/"
+env_var: "TAOSTATS_API_KEY"
+
+# IMPORTANT: endpoint pattern is /api/{resource}/{scope}/v1  (version at END)
+# NOT /v1/{resource}/...
+
+commands:
+
+  # ── Status / Network ──────────────────────────────────────────────────────
+
+  status: |
+    taostats status
+    API service status.
+
+  stats: |
+    taostats stats
+    Network-wide statistics (total stake, neurons, validators…).
+
+  network-params: |
+    taostats network-params
+    All current network/pallet parameters.
+
+  # ── Price ─────────────────────────────────────────────────────────────────
+
+  price: |
+    taostats price [--asset tao]
+    Current TAO price — returns unwrapped single object.
+    Fields: price, volume_24h, market_cap, percent_change_1h/24h/7d/30d/60d/90d,
+            circulating_supply, max_supply, fully_diluted_market_cap,
+            market_cap_dominance, symbol, last_updated.
+
+    Example:
+      taostats price
+      taostats price | jq '{price, volume_24h, percent_change_24h}'
+
+  price-history: |
+    taostats price-history [--asset tao] [--limit N] [--page N]
+                           [--ts-start ISO] [--ts-end ISO]
+    Historical TAO price snapshots.
+
+  price-ohlc: |
+    taostats price-ohlc [--asset tao] [--period PERIOD] [--limit N] [--page N]
+                        [--ts-start ISO] [--ts-end ISO]
+    OHLC candlestick data. period: 1m | 5m | 15m | 1h | 4h | 1d | 1w
+
+    Example:
+      taostats price-ohlc --period 1h --limit 24
+
+  # ── Subnets ───────────────────────────────────────────────────────────────
+
+  subnets: |
+    taostats subnets [--netuid N] [--limit N] [--page N] [--order FIELD]
+    Full subnet state: emission, alpha, tempo, burn, validators, max_neurons,
+    blocks_until_next_epoch, liquid_alpha_enabled, yuma3_on, fee_rate, etc.
+
+    Examples:
+      taostats subnets
+      taostats subnets --netuid 1
+      taostats subnets --limit 10 --page 2
+
+  subnet-pruning: |
+    taostats subnet-pruning [--netuid N] [--limit N] [--page N]
+    Subnet deregistration / pruning ranking (order subnets will be replaced).
+
+  subnet-history: |
+    taostats subnet-history --netuid N [--frequency F] [--limit N] [--page N]
+                            [--block-start N] [--block-end N]
+    Historical subnet parameter snapshots.
+
+    Example:
+      taostats subnet-history --netuid 1 --limit 20
+
+  subnet-registration-cost: |
+    taostats subnet-registration-cost
+    Current subnet registration cost in RAO.
+
+  subnet-emission: |
+    taostats subnet-emission [--netuid N] [--limit N] [--page N]
+                             [--block-start N] [--block-end N]
+    Per-subnet emission data (dTAO era).
+
+  subnet-distribution: |
+    taostats subnet-distribution <netuid> [--type coldkey|incentive]
+    Coldkey stake distribution or miner incentive distribution for a subnet.
+
+    Examples:
+      taostats subnet-distribution 1 --type coldkey
+      taostats subnet-distribution 1 --type incentive
+
+  neuron-registrations: |
+    taostats neuron-registrations [--netuid N] [--hotkey K] [--coldkey K]
+                                  [--limit N] [--page N]
+    Neuron registration events.
+
+  neuron-deregistrations: |
+    taostats neuron-deregistrations [--netuid N] [--hotkey K] [--limit N] [--page N]
+    Neuron deregistration events.
+
+  # ── Neurons ───────────────────────────────────────────────────────────────
+
+  neurons: |
+    taostats neurons [--netuid N] [--uid N] [--hotkey K] [--coldkey K]
+                     [--limit N] [--page N]
+    Latest neuron state.
+    Fields: uid, hotkey, coldkey, emission, incentive, dividends, trust,
+            consensus, validator_permit, stake_weight, pruning_score, axon,
+            miner_rank, validator_rank, is_immune, in_danger, active.
+
+    Examples:
+      taostats neurons --netuid 1 --limit 50
+      taostats neurons --hotkey 5F4tQyWrhfGVcNhoqeiNsR6KjD4wMZ2kfhLj4oHYuyHbZAc3
+      taostats neurons --netuid 3 --uid 0
+
+  neuron-history: |
+    taostats neuron-history [--netuid N] [--uid N] [--hotkey K] [--coldkey K]
+                            [--limit N] [--page N]
+    Historical neuron state snapshots.
+
+  neuron-aggregated: |
+    taostats neuron-aggregated [--netuid N] [--limit N] [--page N]
+    Aggregated neuron stats per subnet.
+
+  # ── Metagraph ─────────────────────────────────────────────────────────────
+
+  metagraph: |
+    taostats metagraph --netuid N [--hotkey K] [--uid N] [--active BOOL]
+                       [--limit N] [--page N]
+    Full metagraph view for a subnet (all neurons with weights, trust, stake).
+    Fields: hotkey, coldkey, uid, stake, trust, validator_trust, consensus,
+            incentive, dividends, emission, axon.
+
+    Examples:
+      taostats metagraph --netuid 1
+      taostats metagraph --netuid 1 --hotkey 5F4tQ... --limit 1
+
+  metagraph-history: |
+    taostats metagraph-history [--netuid N] [--hotkey K] [--uid N]
+                               [--block-start N] [--block-end N] [--limit N] [--page N]
+    Historical metagraph snapshots.
+
+  root-metagraph: |
+    taostats root-metagraph [--hotkey K] [--limit N] [--page N]
+    Root subnet (netuid=0) metagraph.
+
+  # ── Validators ────────────────────────────────────────────────────────────
+
+  validators: |
+    taostats validators [--hotkey K] [--stake-min F] [--apr-min F] [--apr-max F]
+                        [--order FIELD] [--limit N] [--page N]
+    Validator state with full financial metrics.
+    Fields: hotkey, coldkey, name, rank, stake, nominators, apr,
+            nominator_return_per_k, apr_7_day_average, apr_30_day_average,
+            pending_emission, blocks_until_next_reward, registrations,
+            permits, subnet_dominance, total_daily_return, take.
+
+    Examples:
+      taostats validators --limit 20
+      taostats validators --hotkey 5F4tQyWrhfGVcNhoqeiNsR6KjD4wMZ2kfhLj4oHYuyHbZAc3
+      taostats validators --apr-min 0.10 | jq '.data | sort_by(-.apr) | .[:10]'
+
+  validator-history: |
+    taostats validator-history [--hotkey K] [--block-start N] [--block-end N]
+                               [--limit N] [--page N]
+    Historical validator snapshots.
+
+  validator-performance: |
+    taostats validator-performance [--hotkey K] [--netuid N] [--limit N] [--page N]
+    Validator performance metrics per subnet.
+
+  validator-metrics: |
+    taostats validator-metrics [--hotkey K] [--coldkey K] [--netuid N]
+                               [--limit N] [--page N]
+    Validator metrics: emission, dividends, take, stake.
+
+  validator-weights: |
+    taostats validator-weights [--hotkey K] [--netuid N] [--uid N]
+                               [--v2] [--limit N] [--page N]
+    Current validator weights. Use --v2 for dTAO era.
+
+  hotkey-family: |
+    taostats hotkey-family [--hotkey K] [--netuid N] [--limit N] [--page N]
+    Parent/child hotkey relationships (childkey delegations).
+
+  # ── Miner ─────────────────────────────────────────────────────────────────
+
+  miner-weights: |
+    taostats miner-weights [--netuid N] [--miner-hotkey K] [--validator-hotkey K]
+                           [--miner-uid N] [--limit N] [--page N]
+    Current miner weights set by validators.
+
+  miner-coldkey: |
+    taostats miner-coldkey <coldkey> [--days N]
+    Miners associated with a coldkey.
+
+  # ── dTAO — Pools (AMM) ────────────────────────────────────────────────────
+
+  dtao-pools: |
+    taostats dtao-pools [--netuid N] [--order FIELD] [--limit N] [--page N]
+    Current dTAO subnet AMM pool state.
+    Fields: netuid, alpha_token_name, price, tao_reserve, alpha_reserve,
+            alpha_in_emission, k, volume_24h, price_change_24h.
+
+    Examples:
+      taostats dtao-pools
+      taostats dtao-pools --netuid 1
+      taostats dtao-pools | jq '.data | sort_by(-.volume_24h) | .[:10]'
+
+  dtao-pool-history: |
+    taostats dtao-pool-history [--netuid N] [--frequency F]
+                               [--block-start N] [--block-end N] [--limit N] [--page N]
+    Historical dTAO pool snapshots (price, reserves over time).
+
+  dtao-pool-total-price: |
+    taostats dtao-pool-total-price
+    Sum of all subnet alpha prices (total dTAO market cap in TAO).
+
+  dtao-slippage: |
+    taostats dtao-slippage <netuid> <amount> [--direction buy|sell]
+    Calculate expected slippage for a dTAO swap.
+
+    Example:
+      taostats dtao-slippage 1 100 --direction buy
+
+  dtao-tao-flow: |
+    taostats dtao-tao-flow [--netuid N] [--block-start N] [--block-end N]
+    TAO flow in/out of dTAO pools.
+
+  dtao-trades: |
+    taostats dtao-trades [--coldkey K] [--from-name NAME] [--to-name NAME]
+                         [--tao-min F] [--tao-max F] [--limit N] [--page N]
+    dTAO alpha buy/sell trade history.
+
+    Example:
+      taostats dtao-trades --coldkey 5GrwvaEF... --limit 20
+
+  # ── dTAO — Stake & Alpha ──────────────────────────────────────────────────
+
+  dtao-stake: |
+    taostats dtao-stake [--coldkey K] [--hotkey K] [--netuid N]
+                        [--balance-as-tao-min F] [--limit N] [--page N]
+    Current dTAO alpha stake balances per coldkey/hotkey/subnet.
+
+    Example:
+      taostats dtao-stake --coldkey 5GrwvaEF... --netuid 1
+
+  dtao-stake-history: |
+    taostats dtao-stake-history [--coldkey K] [--hotkey K] [--netuid N]
+                                [--block-start N] [--block-end N] [--limit N] [--page N]
+    Historical dTAO alpha stake balance snapshots.
+
+  dtao-portfolio: |
+    taostats dtao-portfolio [--coldkey K] [--hotkey K] [--netuid N]
+                            [--days N] [--limit N] [--page N]
+    dTAO stake portfolio overview (PnL, current value in TAO/USD).
+
+    Example:
+      taostats dtao-portfolio --coldkey 5GrwvaEF... --days 30
+
+  dtao-hotkey-alpha: |
+    taostats dtao-hotkey-alpha [--hotkey K] [--netuid N] [--limit N] [--page N]
+    Current hotkey alpha shares per subnet.
+
+  dtao-coldkey-alpha: |
+    taostats dtao-coldkey-alpha [--coldkey K] [--hotkey K] [--netuid N]
+                                [--limit N] [--page N]
+    Current coldkey alpha shares (all validators staked to).
+
+  dtao-emissions: |
+    taostats dtao-emissions [--hotkey K] [--netuid N]
+                            [--block-start N] [--block-end N] [--limit N] [--page N]
+    Hotkey emission events (alpha emitted per epoch).
+
+  dtao-burned-alpha: |
+    taostats dtao-burned-alpha [--netuid N] [--hotkey K] [--coldkey K]
+                               [--burn-type TYPE] [--limit N] [--page N]
+    Burned alpha events.
+
+  # ── dTAO — Validators ─────────────────────────────────────────────────────
+
+  dtao-validators: |
+    taostats dtao-validators [--hotkey K] [--order FIELD] [--limit N] [--page N]
+    dTAO validator state (post-dTAO launch metrics).
+
+  dtao-validator-performance: |
+    taostats dtao-validator-performance [--hotkey K] [--netuid N] [--limit N] [--page N]
+    dTAO validator performance per subnet: dividends, take, alpha earned.
+
+  dtao-validator-yield: |
+    taostats dtao-validator-yield [--hotkey K] [--netuid N] [--min-stake F]
+                                  [--limit N] [--page N]
+    dTAO validator yield/APY per subnet.
+
+    Example:
+      taostats dtao-validator-yield --netuid 1 | jq '.data | sort_by(-.yield) | .[:10]'
+
+  dtao-validator-dividends: |
+    taostats dtao-validator-dividends [--hotkey K] [--netuid N] [--limit N] [--page N]
+    Current dTAO validator dividend rates.
+
+  # ── dTAO — Liquidity ──────────────────────────────────────────────────────
+
+  dtao-liquidity-positions: |
+    taostats dtao-liquidity-positions [--coldkey K] [--netuid N] [--status STATUS]
+                                      [--limit N] [--page N]
+    Active/closed dTAO liquidity positions.
+
+  dtao-liquidity-distribution: |
+    taostats dtao-liquidity-distribution <netuid> [--min-price F] [--max-price F]
+                                                   [--num-points N]
+    Price distribution of liquidity in a dTAO pool.
+
+  # ── Accounts ──────────────────────────────────────────────────────────────
+
+  accounts: |
+    taostats accounts [--address A] [--balance-free-min F] [--balance-staked-min F]
+                      [--limit N] [--page N]
+    Account balances and stake totals.
+    Fields: address, balance_free, balance_staked, balance_staked_alpha_as_tao, rank.
+
+    Example:
+      taostats accounts --address 5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY
+
+  account-history: |
+    taostats account-history [--address A] [--block-start N] [--block-end N]
+                             [--limit N] [--page N]
+    Historical account balance snapshots.
+
+  identity: |
+    taostats identity [--address A] [--validator-hotkey K]
+    On-chain identity (name, description, url…) for addresses.
+
+  # ── Transfers & Staking ───────────────────────────────────────────────────
+
+  transfers: |
+    taostats transfers [--address A] [--from A] [--to A] [--amount-min F]
+                       [--block-start N] [--block-end N] [--limit N] [--page N]
+    TAO transfer history.
+
+    Example:
+      taostats transfers --from 5GrwvaEF... --limit 20
+
+  delegations: |
+    taostats delegations [--nominator K] [--delegate K] [--action ACTION]
+                         [--limit N] [--page N]
+    Delegation / staking events (addStake / removeStake, legacy).
+    Fields: action, nominator, delegate, delegate_name, amount, alpha, usd.
+
+    Examples:
+      taostats delegations --delegate 5F4tQ... --limit 20
+      taostats delegations --nominator 5GrwvaEF...
+
+  stake-events: |
+    taostats stake-events [--coldkey K] [--hotkey K]
+                          [--block-start N] [--block-end N] [--limit N] [--page N]
+    Raw stake add/remove extrinsic events.
+
+  # ── Blocks & Chain ────────────────────────────────────────────────────────
+
+  blocks: |
+    taostats blocks [--block-number N] [--hash H]
+                    [--block-start N] [--block-end N] [--limit N] [--page N]
+    Blocks: block_number, hash, timestamp, validator, events_count,
+            extrinsics_count, calls_count, spec_version, spec_name.
+
+    Example:
+      taostats blocks --limit 5
+
+  block-emission: |
+    taostats block-emission [--block-number N] [--block-start N] [--block-end N]
+                            [--limit N] [--page N]
+    Block emission records.
+
+  extrinsics: |
+    taostats extrinsics [--hash H] [--full-name NAME]
+                        [--block-start N] [--block-end N] [--limit N] [--page N]
+    Chain extrinsics.
+
+    Example:
+      taostats extrinsics --full-name SubtensorModule.add_stake --limit 10
+
+  events: |
+    taostats events [--pallet P] [--name N]
+                    [--block-start N] [--block-end N] [--limit N] [--page N]
+    Chain events.
+
+  live-block-head: |
+    taostats live-block-head
+    Latest block from live node (real-time, no caching).
+
+  live-block: |
+    taostats live-block <height>
+    Specific block from live node.
+
+  # ── Accounting / Tax ──────────────────────────────────────────────────────
+
+  accounting: |
+    taostats accounting <coldkey> [--hotkey K] [--from YYYY-MM-DD] [--to YYYY-MM-DD]
+    Transaction accounting for a coldkey (income events, cost basis).
+
+    Example:
+      taostats accounting 5GrwvaEF... --from 2026-01-01
+
+  tax-report: |
+    taostats tax-report <coldkey> [--token tao] [--from YYYY-MM-DD] [--to YYYY-MM-DD]
+    Tax report for a coldkey (gain/loss events, cost basis).
+
+  # ── OTC Market ────────────────────────────────────────────────────────────
+
+  otc-listings: |
+    taostats otc-listings [--netuid N] [--seller K] [--status STATUS]
+                          [--limit N] [--page N]
+    OTC alpha listings for sale (v2).
+
+  otc-trades: |
+    taostats otc-trades [--netuid N] [--seller K] [--buyer K]
+                        [--limit N] [--page N]
+    Completed OTC trades.
+
+  otc-offers: |
+    taostats otc-offers [--netuid N] [--buyer K] [--status STATUS]
+                        [--limit N] [--page N]
+    OTC buy offers (v2).
+
+pagination:
+  taostats_response: |
+    All list endpoints return:
+    {
+      "pagination": {
+        "current_page": 1, "per_page": 50,
+        "total_items": N, "total_pages": N,
+        "next_page": 2, "prev_page": null
+      },
+      "data": [ {...}, ... ]
+    }
+    Use --page to paginate. --limit controls items per page.
+    Exception: price, status, stats, network-params return unwrapped objects.
+
+workflows:
+  subnet_overview: |
+    # Full subnet overview
+    taostats subnets --netuid 1
+    taostats metagraph --netuid 1 --limit 256
+
+  top_validators_by_apr: |
+    # Top 20 validators sorted by APR
+    taostats validators --limit 50 | jq '.data | sort_by(-.apr) | .[:20] | .[] | {hotkey, name, apr, stake, nominators}'
+
+  dtao_market_overview: |
+    # dTAO pool prices and volumes
+    taostats dtao-pools | jq '.data | sort_by(-.volume_24h) | .[:20] | .[] | {netuid, alpha_token_name, price, volume_24h, price_change_24h}'
+
+  wallet_analysis: |
+    # Full wallet overview
+    COLDKEY="5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
+    taostats accounts --address "$COLDKEY"
+    taostats dtao-portfolio --coldkey "$COLDKEY"
+    taostats dtao-coldkey-alpha --coldkey "$COLDKEY"
+    taostats transfers --address "$COLDKEY" --limit 10
+
+  validator_check: |
+    # Deep validator analysis
+    HOTKEY="5F4tQyWrhfGVcNhoqeiNsR6KjD4wMZ2kfhLj4oHYuyHbZAc3"
+    taostats validators --hotkey "$HOTKEY"
+    taostats validator-performance --hotkey "$HOTKEY"
+    taostats dtao-validator-yield --hotkey "$HOTKEY"
+    taostats dtao-validator-dividends --hotkey "$HOTKEY"
+
+  neuron_check: |
+    # Check a specific neuron
+    HOTKEY="5F4tQyWrhfGVcNhoqeiNsR6KjD4wMZ2kfhLj4oHYuyHbZAc3"
+    taostats neurons --hotkey "$HOTKEY"
+    taostats delegations --delegate "$HOTKEY" --limit 10
+
+  price_snapshot: |
+    taostats price | jq '{price, volume_24h, market_cap, percent_change_24h}'
+
+  at_risk_subnets: |
+    # Subnets most at risk of deregistration
+    taostats subnet-pruning --limit 10
+
+  swap_analysis: |
+    # Analyze a potential dTAO swap
+    taostats dtao-pools --netuid 1
+    taostats dtao-slippage 1 1000 --direction buy
+
+critical_notes:
+  - "Auth header: 'Authorization: <key>' — NO Bearer prefix (Bearer returns 401)"
+  - "Endpoint pattern: /api/{resource}/{scope}/v1 — version is at END of path"
+  - "Rate limit: ~10 req/s on free tier; add sleep between bulk queries"
+  - "Pagination: use --page and --limit; response wraps data under 'data' key with 'pagination'"
+  - "price / status / stats / network-params return unwrapped single objects (no pagination wrapper)"
+  - "All SS58 addresses: 5... format for Bittensor mainnet"
+  - "dTAO era: use dtao-* commands for pool/stake/alpha data; old validator/* still works for legacy metrics"
+  - "OTC market: v2 endpoints (/api/otc/*/v2) — listing, trade, offer"
+  - "Live endpoints (/api/v1/live/blocks/*) hit live node, not indexed DB"
+  - "Time filters: --ts-start / --ts-end accept ISO 8601 or epoch milliseconds"
+  - "Block filters: --block-start / --block-end accept block numbers"

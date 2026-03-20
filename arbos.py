@@ -31,6 +31,7 @@ PROMPT_FILE = WORKING_DIR / "PROMPT.md"
 CONTEXT_DIR = WORKING_DIR / "context"
 GOALS_DIR = CONTEXT_DIR / "goals"
 GOALS_JSON = CONTEXT_DIR / "goals.json"
+WORKSPACES_DIR = CONTEXT_DIR / "workspace"
 CHATLOG_DIR = CONTEXT_DIR / "chat"
 FILES_DIR = CONTEXT_DIR / "files"
 RESTART_FLAG = WORKING_DIR / ".restart"
@@ -209,6 +210,74 @@ def _reload_env_secrets():
     _env_secrets = _load_env_secrets()
 
 
+def _get_env_lines_src() -> tuple[list[str], str]:
+    """Return (.env lines, 'plain'|'enc'|'none') for list/edit/delete (Discord /env parity)."""
+    env_path = WORKING_DIR / ".env"
+    if env_path.exists():
+        return env_path.read_text().splitlines(), "plain"
+    tok = os.environ.get("TAU_BOT_TOKEN", "")
+    if ENV_ENC_FILE.exists() and tok:
+        try:
+            return _decrypt_env_content(tok).splitlines(), "enc"
+        except InvalidToken:
+            pass
+    return [], "none"
+
+
+def _write_env_lines(lines: list[str], source: str):
+    env_path = WORKING_DIR / ".env"
+    if source == "plain":
+        env_path.write_text("\n".join(lines).rstrip() + "\n")
+    elif source == "enc":
+        tok = os.environ.get("TAU_BOT_TOKEN", "")
+        if not tok:
+            raise RuntimeError("TAU_BOT_TOKEN required to update .env.enc")
+        enc = Fernet(_derive_fernet_key(tok))
+        ENV_ENC_FILE.write_bytes(enc.encrypt(("\n".join(lines).rstrip() + "\n").encode()))
+
+
+def _list_env_keys_arbos() -> list[str]:
+    lines, _ = _get_env_lines_src()
+    keys: list[str] = []
+    for line in lines:
+        stripped = line.split("#")[0].strip()
+        if "=" in stripped:
+            keys.append(stripped.split("=", 1)[0].strip())
+    return keys
+
+
+def _delete_env_key_arbos(key: str):
+    lines, src = _get_env_lines_src()
+    if src == "none":
+        raise RuntimeError("No .env or .env.enc")
+    new_lines = [
+        ln for ln in lines
+        if not ln.split("#")[0].strip().startswith(f"{key}=")
+    ]
+    _write_env_lines(new_lines, src)
+    os.environ.pop(key, None)
+
+
+def _workspace_json_path(workspace_id: int) -> Path:
+    return WORKSPACES_DIR / str(workspace_id) / "workspace.json"
+
+
+def _read_workspace_model(workspace_id: int) -> str | None:
+    if not workspace_id:
+        return None
+    p = _workspace_json_path(workspace_id)
+    if not p.exists():
+        return None
+    try:
+        d = json.loads(p.read_text())
+        m = d.get("model")
+        if isinstance(m, str) and m.strip():
+            return m.strip()
+    except (json.JSONDecodeError, OSError, TypeError):
+        pass
+    return None
+
+
 def _redact_secrets(text: str) -> str:
     """Strip known secrets and common key patterns from outgoing text."""
     for secret in _env_secrets:
@@ -337,6 +406,7 @@ class GoalState:
     delay: int = 0
     started: bool = False
     paused: bool = False
+    force_next: bool = False
     step_count: int = 0
     goal_hash: str = ""
     last_run: str = ""
@@ -349,79 +419,141 @@ class GoalState:
 _goals: dict[int, GoalState] = {}
 _goals_lock = threading.Lock()
 
-
-def _goal_dir(index: int) -> Path:
-    return GOALS_DIR / str(index)
-
-
-def _goal_file(index: int) -> Path:
-    return _goal_dir(index) / "GOAL.md"
+# Telegram “Discord-like” workspaces: one map per supergroup chat_id (negative int).
+_tg_workspace_goals: dict[int, dict[int, GoalState]] = {}
 
 
-def _state_file(index: int) -> Path:
-    return _goal_dir(index) / "STATE.md"
+def _goal_dir(index: int, workspace_id: int = 0) -> Path:
+    if workspace_id == 0:
+        return GOALS_DIR / str(index)
+    return WORKSPACES_DIR / str(workspace_id) / "goals" / str(index)
 
 
-def _inbox_file(index: int) -> Path:
-    return _goal_dir(index) / "INBOX.md"
+def _goals_json_path(workspace_id: int) -> Path:
+    if workspace_id == 0:
+        return GOALS_JSON
+    return WORKSPACES_DIR / str(workspace_id) / "goals.json"
 
 
-def _outbox_file(index: int) -> Path:
+def _tg_goals_map(workspace_id: int) -> dict[int, GoalState]:
+    if workspace_id not in _tg_workspace_goals:
+        _tg_workspace_goals[workspace_id] = {}
+    return _tg_workspace_goals[workspace_id]
+
+
+def _goal_file(index: int, workspace_id: int = 0) -> Path:
+    return _goal_dir(index, workspace_id) / "GOAL.md"
+
+
+def _state_file(index: int, workspace_id: int = 0) -> Path:
+    return _goal_dir(index, workspace_id) / "STATE.md"
+
+
+def _inbox_file(index: int, workspace_id: int = 0) -> Path:
+    return _goal_dir(index, workspace_id) / "INBOX.md"
+
+
+def _outbox_file(index: int, workspace_id: int = 0) -> Path:
     if index:
-        return _goal_dir(index) / "OUTBOX.md"
+        return _goal_dir(index, workspace_id) / "OUTBOX.md"
     return CONTEXT_DIR / "OUTBOX.md"
 
 
-def _goal_runs_dir(index: int) -> Path:
-    return _goal_dir(index) / "runs"
+def _goal_runs_dir(index: int, workspace_id: int = 0) -> Path:
+    return _goal_dir(index, workspace_id) / "runs"
 
 
-def _step_msg_file(index: int) -> Path:
-    return _goal_dir(index) / ".step_msg"
+def _step_msg_file(index: int, workspace_id: int = 0) -> Path:
+    return _goal_dir(index, workspace_id) / ".step_msg"
 
 
-def _save_goals():
-    """Persist goal metadata to goals.json. Caller must hold _goals_lock."""
-    data = {}
-    for idx, gs in _goals.items():
-        data[str(idx)] = {
-            "summary": gs.summary,
-            "delay": gs.delay,
-            "started": gs.started,
-            "paused": gs.paused,
-            "step_count": gs.step_count,
-            "goal_hash": gs.goal_hash,
-            "last_run": gs.last_run,
-            "last_finished": gs.last_finished,
-        }
-    GOALS_JSON.parent.mkdir(parents=True, exist_ok=True)
-    GOALS_JSON.write_text(json.dumps(data, indent=2))
+def _goal_ctx_rel_path(goal_index: int, workspace_id: int = 0) -> str:
+    if workspace_id == 0:
+        return f"context/goals/{goal_index}/"
+    return f"context/workspace/{workspace_id}/goals/{goal_index}/"
 
 
-def _load_goals():
-    """Load goal metadata from goals.json into _goals dict."""
-    global _goals
-    if not GOALS_JSON.exists():
+def _serialize_goal_entry(gs: GoalState) -> dict[str, Any]:
+    return {
+        "summary": gs.summary,
+        "delay": gs.delay,
+        "started": gs.started,
+        "paused": gs.paused,
+        "force_next": gs.force_next,
+        "step_count": gs.step_count,
+        "goal_hash": gs.goal_hash,
+        "last_run": gs.last_run,
+        "last_finished": gs.last_finished,
+    }
+
+
+def _save_goals(workspace_id: int = 0):
+    """Persist goal metadata for legacy (0) or a Telegram workspace supergroup. Caller must hold _goals_lock."""
+    if workspace_id == 0:
+        goals_map = _goals
+        jf = GOALS_JSON
+    else:
+        goals_map = _tg_goals_map(workspace_id)
+        jf = _goals_json_path(workspace_id)
+    data = {str(idx): _serialize_goal_entry(gs) for idx, gs in goals_map.items()}
+    jf.parent.mkdir(parents=True, exist_ok=True)
+    jf.write_text(json.dumps(data, indent=2))
+
+
+def _load_goals_json_into(workspace_id: int, goals_map: dict[int, GoalState]):
+    jf = _goals_json_path(workspace_id)
+    if not jf.exists():
         return
     try:
-        data = json.loads(GOALS_JSON.read_text())
+        data = json.loads(jf.read_text())
     except (json.JSONDecodeError, OSError):
         return
     for idx_str, info in data.items():
         idx = int(idx_str)
-        if not _goal_file(idx).exists():
+        if not _goal_file(idx, workspace_id).exists():
             continue
-        _goals[idx] = GoalState(
+        goals_map[idx] = GoalState(
             index=idx,
             summary=info.get("summary", ""),
             delay=info.get("delay", 0),
             started=info.get("started", False),
             paused=info.get("paused", False),
+            force_next=info.get("force_next", False),
             step_count=info.get("step_count", 0),
             goal_hash=info.get("goal_hash", ""),
             last_run=info.get("last_run", ""),
             last_finished=info.get("last_finished", ""),
         )
+
+
+def _load_goals():
+    """Load goal metadata: legacy context/goals + configured Telegram workspace dirs."""
+    global _goals
+    _load_goals_json_into(0, _goals)
+    allowed = _telegram_workspace_group_ids_from_env()
+    if not allowed or not WORKSPACES_DIR.exists():
+        return
+    for ws_dir in sorted(WORKSPACES_DIR.iterdir()):
+        if not ws_dir.is_dir():
+            continue
+        try:
+            ws_id = int(ws_dir.name)
+        except ValueError:
+            continue
+        if ws_id not in allowed:
+            continue
+        jf = ws_dir / "goals.json"
+        if not jf.exists() and not (ws_dir / "goals").exists():
+            continue
+        gmap = _tg_goals_map(ws_id)
+        _load_goals_json_into(ws_id, gmap)
+
+
+def _total_registered_goals() -> int:
+    n = len(_goals)
+    for g in _tg_workspace_goals.values():
+        n += len(g)
+    return n
 
 
 TELEGRAM_QA_GOAL_TEMPLATE = WORKING_DIR / "GOAL_TELEGRAM_BITTENSOR.md"
@@ -432,7 +564,9 @@ def _telegram_qa_fixed_goal_markdown() -> str:
         return TELEGRAM_QA_GOAL_TEMPLATE.read_text().strip()
     return (
         "# Mission fixe — Telegram Bittensor\n\n"
-        "Répondre avec précision aux messages utilisateurs (Telegram), via **agcli** / **btcli** et Chi en contexte.\n"
+        "À chaque demande : répondre avec **tous les outils nécessaires**, **spécialisé Bittensor** et l’**écosystème complet** "
+        "(CLI, docs, web, Chi en contexte seulement). **`/arbos` :** réponse **en français**. "
+        "Voir **`GOAL_TELEGRAM_BITTENSOR.md`** pour le texte de référence.\n"
     )
 
 
@@ -453,7 +587,7 @@ def _ensure_telegram_qa_fixed_goal():
         _state_file(idx).write_text("")
     if not _inbox_file(idx).exists():
         _inbox_file(idx).write_text("")
-    summary = "Telegram Bittensor Q&A (fixed)"
+    summary = "Bittensor : outils complets + écosystème (mission fixe)"
     with _goals_lock:
         if idx not in _goals:
             _goals[idx] = GoalState(index=idx, summary=summary)
@@ -534,25 +668,28 @@ def fmt_tokens(inp: int, out: int, elapsed: float = 0) -> str:
 
 # ── Prompt helpers ───────────────────────────────────────────────────────────
 
-def load_prompt(goal_index: int, consume_inbox: bool = False, goal_step: int = 0) -> str:
+def load_prompt(goal_index: int, consume_inbox: bool = False, goal_step: int = 0, workspace_id: int = 0) -> str:
     """Build full prompt: PROMPT.md + goal's GOAL/STATE/INBOX + chatlog."""
     parts = []
     if PROMPT_FILE.exists():
         text = PROMPT_FILE.read_text().strip()
         if text:
             parts.append(text)
-    gf = _goal_file(goal_index)
+    gf = _goal_file(goal_index, workspace_id)
     if gf.exists():
         goal_text = gf.read_text().strip()
         if goal_text:
             header = f"## Goal #{goal_index} (step {goal_step})" if goal_step else f"## Goal #{goal_index}"
-            parts.append(f"{header}\n\n{goal_text}\n\nYour context files are in context/goals/{goal_index}/ (STATE.md, INBOX.md, runs/).")
-    sf = _state_file(goal_index)
+            rel = _goal_ctx_rel_path(goal_index, workspace_id)
+            parts.append(
+                f"{header}\n\n{goal_text}\n\nYour context files are in {rel} (STATE.md, INBOX.md, runs/).",
+            )
+    sf = _state_file(goal_index, workspace_id)
     if sf.exists():
         state_text = sf.read_text().strip()
         if state_text:
             parts.append(f"## State\n\n{state_text}")
-    inf = _inbox_file(goal_index)
+    inf = _inbox_file(goal_index, workspace_id)
     if inf.exists():
         inbox_text = inf.read_text().strip()
         if inbox_text:
@@ -565,8 +702,11 @@ def load_prompt(goal_index: int, consume_inbox: bool = False, goal_step: int = 0
     return "\n\n".join(parts)
 
 
-def make_run_dir(goal_index: int = 0) -> Path:
-    runs_dir = _goal_runs_dir(goal_index) if goal_index else GOALS_DIR / "_runs"
+def make_run_dir(goal_index: int = 0, workspace_id: int = 0) -> Path:
+    if goal_index:
+        runs_dir = _goal_runs_dir(goal_index, workspace_id)
+    else:
+        runs_dir = GOALS_DIR / "_runs"
     runs_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir = runs_dir / ts
@@ -574,37 +714,101 @@ def make_run_dir(goal_index: int = 0) -> Path:
     return run_dir
 
 
-def log_chat(role: str, text: str):
-    """Append to chatlog, rolling to a new file when size exceeds limit."""
+def _rolling_chatlog_append_locked(base: Path, record: dict) -> None:
+    """Append one JSON line under ``base/``; rotate tiny files. Caller must hold ``_chatlog_lock``."""
+    max_file_size = 4000
+    max_files = 50
+    base.mkdir(parents=True, exist_ok=True)
+    existing = sorted(base.glob("*.jsonl"))
+    current: Path | None = None
+    if existing and existing[-1].stat().st_size < max_file_size:
+        current = existing[-1]
+    if current is None:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        current = base / f"{ts}.jsonl"
+    with open(current, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+    all_files = sorted(base.glob("*.jsonl"))
+    for old in all_files[:-max_files]:
+        old.unlink(missing_ok=True)
+
+
+def log_chat(
+    role: str,
+    text: str,
+    *,
+    telegram_user_id: int | None = None,
+    telegram_shared_room_id: int | None = None,
+):
+    """Append to per-user log and/or shared group log and/or global legacy log.
+
+    - ``by_user/<id>/`` when ``telegram_user_id`` is set.
+    - ``group/<chat_id>/`` when ``telegram_shared_room_id`` is set (same lines, tagged with ``from_user_id``).
+    - ``context/chat/*.jsonl`` only when both user and room are unset (Ralph / system).
+    """
+    ts = datetime.now().isoformat()
+    text_red = _redact_secrets(text[:1000])
     with _chatlog_lock:
         CHATLOG_DIR.mkdir(parents=True, exist_ok=True)
-        max_file_size = 4000
-        max_files = 50
-
-        existing = sorted(CHATLOG_DIR.glob("*.jsonl"))
-
-        current: Path | None = None
-        if existing and existing[-1].stat().st_size < max_file_size:
-            current = existing[-1]
-
-        if current is None:
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            current = CHATLOG_DIR / f"{ts}.jsonl"
-
-        entry = json.dumps({"role": role, "text": _redact_secrets(text[:1000]), "ts": datetime.now().isoformat()})
-        with open(current, "a", encoding="utf-8") as f:
-            f.write(entry + "\n")
-
-        all_files = sorted(CHATLOG_DIR.glob("*.jsonl"))
-        for old in all_files[:-max_files]:
-            old.unlink(missing_ok=True)
+        rec = {"role": role, "text": text_red, "ts": ts}
+        if telegram_user_id is not None:
+            _rolling_chatlog_append_locked(CHATLOG_DIR / "by_user" / str(telegram_user_id), rec)
+        else:
+            _rolling_chatlog_append_locked(CHATLOG_DIR, rec)
+        if telegram_shared_room_id is not None:
+            gr = {**rec}
+            if telegram_user_id is not None:
+                gr["from_user_id"] = telegram_user_id
+            _rolling_chatlog_append_locked(
+                CHATLOG_DIR / "group" / str(telegram_shared_room_id),
+                gr,
+            )
 
 
-def load_chatlog(max_chars: int = 8000) -> str:
-    """Load recent Telegram chat history."""
-    if not CHATLOG_DIR.exists():
+def load_chatlog_group(max_chars: int = 3000, *, telegram_chat_id: int) -> str:
+    """Recent bot/user turns mirrored from this Telegram group (all members)."""
+    root = CHATLOG_DIR / "group" / str(telegram_chat_id)
+    header = f"## Salon Telegram (chat_id={telegram_chat_id} — tous les membres, ordre récent)\n\n"
+    if not root.exists():
         return ""
-    files = sorted(CHATLOG_DIR.glob("*.jsonl"))
+    files = sorted(root.glob("*.jsonl"))
+    if not files:
+        return ""
+
+    lines: list[str] = []
+    total = 0
+    for f in reversed(files):
+        for raw in reversed(f.read_text().strip().splitlines()):
+            try:
+                msg = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            uid = msg.get("from_user_id", "?")
+            entry = f"[{msg.get('ts', '?')[:16]}] uid={uid} {msg['role']}: {msg['text']}"
+            if total + len(entry) > max_chars:
+                lines.reverse()
+                return header + "\n".join(lines)
+            lines.append(entry)
+            total += len(entry) + 1
+
+    lines.reverse()
+    if not lines:
+        return ""
+    return header + "\n".join(lines)
+
+
+def load_chatlog(max_chars: int = 8000, *, telegram_user_id: int | None = None) -> str:
+    """Load recent Telegram chat history (per-user dir or global legacy log)."""
+    if telegram_user_id is not None:
+        root = CHATLOG_DIR / "by_user" / str(telegram_user_id)
+        header = f"## Recent Telegram chat (user_id={telegram_user_id})\n\n"
+    else:
+        root = CHATLOG_DIR
+        header = "## Recent Telegram chat (global)\n\n"
+
+    if not root.exists():
+        return ""
+    files = sorted(root.glob("*.jsonl"))
     if not files:
         return ""
 
@@ -619,17 +823,53 @@ def load_chatlog(max_chars: int = 8000) -> str:
             entry = f"[{msg.get('ts', '?')[:16]}] {msg['role']}: {msg['text']}"
             if total + len(entry) > max_chars:
                 lines.reverse()
-                return "## Recent Telegram chat\n\n" + "\n".join(lines)
+                return header + "\n".join(lines)
             lines.append(entry)
             total += len(entry) + 1
 
     lines.reverse()
     if not lines:
         return ""
-    return "## Recent Telegram chat\n\n" + "\n".join(lines)
+    return header + "\n".join(lines)
 
 
 # ── Step update helpers ──────────────────────────────────────────────────────
+
+
+def _telegram_read_chat_id_file() -> str:
+    """First non-empty, non-comment line from chat_id.txt (extra lines / notes must not break sends)."""
+    if not CHAT_ID_FILE.exists():
+        return ""
+    for line in CHAT_ID_FILE.read_text().splitlines():
+        s = line.strip()
+        if s and not s.startswith("#"):
+            return s
+    return ""
+
+
+def _telegram_api_chat_id(chat_id: str) -> int | str:
+    """Numeric ids as int for sendMessage (Telegram accepts str too; int avoids odd 400s)."""
+    s = (chat_id or "").strip()
+    if not s:
+        return s
+    if s.startswith("-") and s[1:].isdigit():
+        return int(s)
+    if s.isdigit():
+        return int(s)
+    return s
+
+
+def _log_telegram_request_error(where: str, exc: BaseException) -> None:
+    base = str(exc)[:500]
+    extra = ""
+    resp = getattr(exc, "response", None)
+    if resp is not None:
+        try:
+            j = resp.json()
+            extra = f" | telegram={j.get('description', resp.text[:400])}"
+        except Exception:
+            extra = f" | body={resp.text[:400]!r}"
+    _log(f"{where}: {base}{extra}")
 
 
 def _step_update_target() -> tuple[str, str] | None:
@@ -640,28 +880,43 @@ def _step_update_target() -> tuple[str, str] | None:
     if not CHAT_ID_FILE.exists():
         _log("step update skipped: chat_id.txt not found")
         return None
-    chat_id = CHAT_ID_FILE.read_text().strip()
+    chat_id = _telegram_read_chat_id_file()
     if not chat_id:
         _log("step update skipped: empty chat_id.txt")
         return None
     return token, chat_id
 
 
-def _send_telegram_text(text: str, *, target: tuple[str, str] | None = None) -> bool:
+def _telegram_step_target(workspace_id: int = 0) -> tuple[str, str] | None:
+    """Telegram (token, chat_id) for goal-step status messages: DM/file chat_id or workspace supergroup id."""
+    token = os.getenv("TAU_BOT_TOKEN")
+    if not token:
+        _log("step update skipped: TAU_BOT_TOKEN not set")
+        return None
+    if workspace_id != 0:
+        return token, str(workspace_id)
+    return _step_update_target()
+
+
+def _send_telegram_text(text: str, *, chat_id: int | None = None, target: tuple[str, str] | None = None) -> bool:
+    if target is None and chat_id is not None:
+        token = os.getenv("TAU_BOT_TOKEN")
+        target = (token, str(chat_id)) if token else None
     target = target or _step_update_target()
     if not target:
         return False
-    token, chat_id = target
+    token, chat_id_raw = target
+    cid = _telegram_api_chat_id(chat_id_raw)
     text = _redact_secrets(text)
     try:
         response = requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": text[:4000]},
+            json={"chat_id": cid, "text": text[:4000]},
             timeout=15,
         )
         response.raise_for_status()
-    except Exception as exc:
-        _log(f"telegram send failed: {str(exc)[:120]}")
+    except requests.RequestException as exc:
+        _log_telegram_request_error("telegram send failed", exc)
         return False
     log_chat("bot", text[:1000])
     _log("telegram message sent")
@@ -673,19 +928,20 @@ def _send_telegram_new(text: str, *, target: tuple[str, str] | None = None) -> i
     target = target or _step_update_target()
     if not target:
         return None
-    token, chat_id = target
+    token, chat_id_raw = target
+    cid = _telegram_api_chat_id(chat_id_raw)
     text = _redact_secrets(text)
     try:
         response = requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": text[:4000]},
+            json={"chat_id": cid, "text": text[:4000]},
             timeout=15,
         )
         response.raise_for_status()
         log_chat("bot", text[:1000])
         return response.json().get("result", {}).get("message_id")
-    except Exception as exc:
-        _log(f"telegram send failed: {str(exc)[:120]}")
+    except requests.RequestException as exc:
+        _log_telegram_request_error("telegram send failed", exc)
         return None
 
 
@@ -694,12 +950,13 @@ def _edit_telegram_text(message_id: int, text: str, *, target: tuple[str, str] |
     target = target or _step_update_target()
     if not target:
         return False
-    token, chat_id = target
+    token, chat_id_raw = target
+    cid = _telegram_api_chat_id(chat_id_raw)
     text = _redact_secrets(text)
     try:
         resp = requests.post(
             f"https://api.telegram.org/bot{token}/editMessageText",
-            json={"chat_id": chat_id, "message_id": message_id, "text": text[:4000]},
+            json={"chat_id": cid, "message_id": message_id, "text": text[:4000]},
             timeout=15,
         )
         if not resp.ok:
@@ -708,8 +965,8 @@ def _edit_telegram_text(message_id: int, text: str, *, target: tuple[str, str] |
                 _log(f"telegram edit failed: {resp.status_code} {desc[:80]}")
             return "message is not modified" in desc
         return True
-    except Exception as exc:
-        _log(f"telegram edit failed: {str(exc)[:120]}")
+    except requests.RequestException as exc:
+        _log_telegram_request_error("telegram edit failed", exc)
         return False
 
 
@@ -718,13 +975,14 @@ def _send_telegram_document(file_path: str, caption: str = "", *, target: tuple[
     target = target or _step_update_target()
     if not target:
         return False
-    token, chat_id = target
+    token, chat_id_raw = target
+    cid = _telegram_api_chat_id(chat_id_raw)
     caption = _redact_secrets(caption)[:1024]
     try:
         with open(file_path, "rb") as f:
             response = requests.post(
                 f"https://api.telegram.org/bot{token}/sendDocument",
-                data={"chat_id": chat_id, "caption": caption},
+                data={"chat_id": cid, "caption": caption},
                 files={"document": (Path(file_path).name, f)},
                 timeout=60,
             )
@@ -732,8 +990,8 @@ def _send_telegram_document(file_path: str, caption: str = "", *, target: tuple[
         _log(f"telegram document sent: {Path(file_path).name}")
         log_chat("bot", f"[sent file: {Path(file_path).name}] {caption}")
         return True
-    except Exception as exc:
-        _log(f"telegram document send failed: {str(exc)[:120]}")
+    except requests.RequestException as exc:
+        _log_telegram_request_error("telegram document send failed", exc)
         return False
 
 
@@ -742,13 +1000,14 @@ def _send_telegram_photo(file_path: str, caption: str = "", *, target: tuple[str
     target = target or _step_update_target()
     if not target:
         return False
-    token, chat_id = target
+    token, chat_id_raw = target
+    cid = _telegram_api_chat_id(chat_id_raw)
     caption = _redact_secrets(caption)[:1024]
     try:
         with open(file_path, "rb") as f:
             response = requests.post(
                 f"https://api.telegram.org/bot{token}/sendPhoto",
-                data={"chat_id": chat_id, "caption": caption},
+                data={"chat_id": cid, "caption": caption},
                 files={"photo": (Path(file_path).name, f)},
                 timeout=60,
             )
@@ -756,8 +1015,8 @@ def _send_telegram_photo(file_path: str, caption: str = "", *, target: tuple[str
         _log(f"telegram photo sent: {Path(file_path).name}")
         log_chat("bot", f"[sent photo: {Path(file_path).name}] {caption}")
         return True
-    except Exception as exc:
-        _log(f"telegram photo send failed: {str(exc)[:120]}")
+    except requests.RequestException as exc:
+        _log_telegram_request_error("telegram photo send failed", exc)
         return False
 
 
@@ -1392,6 +1651,14 @@ def _active_model() -> str:
     return FALLBACK_MODEL if _using_fallback else CLAUDE_MODEL
 
 
+def _effective_model(workspace_id: int = 0) -> str:
+    """Per-workspace override in context/workspace/<id>/workspace.json (Discord /model parity)."""
+    m = _read_workspace_model(workspace_id)
+    if m:
+        return m
+    return _active_model()
+
+
 def _uses_claude_cli(provider: str) -> bool:
     return provider in ("anthropic", "openrouter", "chutes")
 
@@ -1434,40 +1701,50 @@ def _check_cursor_login() -> None:
     else:
         _log("WARNING: cursor agent not authenticated — run `agent login`")
 
-def _claude_cmd(prompt: str, extra_flags: list[str] | None = None) -> list[str]:
+def _claude_cmd(
+    prompt: str, extra_flags: list[str] | None = None, model: str | None = None,
+) -> list[str]:
     cmd = ["claude", "-p", prompt]
     if not IS_ROOT:
         cmd.append("--dangerously-skip-permissions")
     cmd.extend(["--output-format", "stream-json", "--verbose"])
     if extra_flags:
         cmd.extend(extra_flags)
+    else:
+        m = model if model is not None else _active_model()
+        if m:
+            cmd.extend(["--model", m])
     return cmd
 
 
-def _codex_cmd(prompt: str, model: str | None = None) -> list[str]:
+def _codex_cmd(
+    prompt: str, model: str | None = None, cwd: Path | None = None,
+) -> list[str]:
+    root = cwd or WORKING_DIR
     return [
         "codex", "exec",
         "--json",
         "--dangerously-bypass-approvals-and-sandbox",
-        "--cd", str(WORKING_DIR),
+        "--cd", str(root),
         "--model", model or _active_model(),
         "--skip-git-repo-check",
         prompt,
     ]
 
 
-def _cursor_cmd(prompt: str) -> list[str]:
+def _cursor_cmd(prompt: str, model: str | None = None, cwd: Path | None = None) -> list[str]:
+    root = cwd or WORKING_DIR
     cmd = [
         "agent",
         "--print",
         "--yolo",
         "--trust",
         "--output-format", "stream-json",
-        "--workspace", str(WORKING_DIR),
+        "--workspace", str(root),
     ]
-    model = _active_model()
-    if model:
-        cmd.extend(["--model", model])
+    m = model if model is not None else _active_model()
+    if m:
+        cmd.extend(["--model", m])
     cmd.append(prompt)
     return cmd
 
@@ -1538,11 +1815,13 @@ def _write_claude_settings():
     _log(f"wrote .claude/settings.local.json (provider={provider}, model={model}, target={target_label})")
 
 
-def _claude_env(goal_index: int = 0) -> dict[str, str]:
+def _claude_env(goal_index: int = 0, workspace_id: int = 0) -> dict[str, str]:
     env = os.environ.copy()
     env.pop("TAU_BOT_TOKEN", None)
     if goal_index:
         env["ARBOS_GOAL_INDEX"] = str(goal_index)
+    if workspace_id:
+        env["ARBOS_WORKSPACE_ID"] = str(workspace_id)
 
     provider = _active_provider()
 
@@ -1564,15 +1843,16 @@ def _claude_env(goal_index: int = 0) -> dict[str, str]:
     return env
 
 
-def _run_claude_once(cmd, env, on_text=None, on_activity=None):
+def _run_claude_once(cmd, env, on_text=None, on_activity=None, cwd: Path | None = None):
     """Run a single claude subprocess, return (returncode, result_text, raw_lines, stderr).
 
     on_text: optional callback(accumulated_text) fired as assistant text streams in.
     on_activity: optional callback(status_str) fired on tool use and other activity.
     Kills the process if no output is received for CLAUDE_TIMEOUT seconds.
     """
+    run_cwd = cwd if cwd is not None else WORKING_DIR
     proc = subprocess.Popen(
-        cmd, cwd=WORKING_DIR, env=env,
+        cmd, cwd=run_cwd, env=env,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, bufsize=1,
@@ -1694,7 +1974,7 @@ def _cursor_activity(evt: dict) -> str | None:
     return None
 
 
-def _run_cursor_once(cmd, env, on_text=None, on_activity=None):
+def _run_cursor_once(cmd, env, on_text=None, on_activity=None, cwd: Path | None = None):
     """Run a single cursor agent subprocess, return (returncode, result_text, raw_lines, stderr).
 
     Parses Cursor's stream-json format:
@@ -1702,8 +1982,9 @@ def _run_cursor_once(cmd, env, on_text=None, on_activity=None):
       type=tool_call  → fire on_activity
       type=result     → final result text + token usage
     """
+    run_cwd = cwd if cwd is not None else WORKING_DIR
     proc = subprocess.Popen(
-        cmd, cwd=WORKING_DIR, env=env,
+        cmd, cwd=run_cwd, env=env,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, bufsize=1,
@@ -1807,10 +2088,11 @@ def _codex_activity(evt: dict[str, Any]) -> str | None:
     return str(label)[:80] if label else None
 
 
-def _run_codex_once(cmd, env, on_text=None, on_activity=None):
+def _run_codex_once(cmd, env, on_text=None, on_activity=None, cwd: Path | None = None):
     """Run a single codex subprocess, return (returncode, result_text, raw_lines, stderr)."""
+    run_cwd = cwd if cwd is not None else WORKING_DIR
     proc = subprocess.Popen(
-        cmd, cwd=WORKING_DIR, env=env,
+        cmd, cwd=run_cwd, env=env,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, bufsize=1,
@@ -1887,14 +2169,15 @@ def _run_codex_once(cmd, env, on_text=None, on_activity=None):
     return returncode, result_text, raw_lines, stderr_output
 
 
-def _run_opencode_once(cmd, env, on_text=None, on_activity=None, prompt: str = ""):
+def _run_opencode_once(cmd, env, on_text=None, on_activity=None, prompt: str = "", cwd: Path | None = None):
     """Run a single opencode subprocess, return (returncode, result_text, raw_lines, stderr).
 
     Parses OpenCode's JSON stream format: step_start, text, tool_use, step_finish.
     The prompt is sent via stdin (opencode reads from pipe).
     """
+    run_cwd = cwd if cwd is not None else WORKING_DIR
     proc = subprocess.Popen(
-        cmd, cwd=WORKING_DIR, env=env,
+        cmd, cwd=run_cwd, env=env,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, bufsize=1,
@@ -1981,10 +2264,16 @@ def _run_opencode_once(cmd, env, on_text=None, on_activity=None, prompt: str = "
 
 
 def run_agent(cmd: list[str], phase: str, output_file: Path,
-              on_text=None, on_activity=None, goal_index: int = 0) -> subprocess.CompletedProcess:
+              on_text=None, on_activity=None, goal_index: int = 0, workspace_id: int = 0,
+              agent_cwd: Path | None = None) -> subprocess.CompletedProcess:
     _claude_semaphore.acquire()
     try:
         returncode, result_text, raw_lines, stderr_output = 1, "", [], "no attempts made"
+        ac = agent_cwd
+        if ac is None:
+            ac = _goal_dir(goal_index, workspace_id) if goal_index else WORKING_DIR
+        ac.mkdir(parents=True, exist_ok=True)
+        wm = _effective_model(workspace_id)
 
         for attempt in range(1, MAX_RETRIES + 1):
             active_provider = _active_provider()
@@ -1994,14 +2283,14 @@ def run_agent(cmd: list[str], phase: str, output_file: Path,
 
             if use_opencode:
                 prompt_text = _extract_prompt(cmd)
-                active_cmd = _opencode_cmd()
+                active_cmd = _opencode_cmd(wm)
                 env = os.environ.copy()
                 env.pop("TAU_BOT_TOKEN", None)
                 env["PYTHONUNBUFFERED"] = "1"
                 # Inject OpenCode config from .env (no opencode.json needed)
                 opencode_config = {
-                    "model": f"opencode/{FALLBACK_MODEL}",
-                    "small_model": f"opencode/{FALLBACK_MODEL}",
+                    "model": f"opencode/{wm}",
+                    "small_model": f"opencode/{wm}",
                     "autoupdate": os.environ.get("OPENCODE_AUTOUPDATE", "false").lower() == "true",
                     "snapshot": os.environ.get("OPENCODE_SNAPSHOT", "false").lower() == "true",
                 }
@@ -2009,14 +2298,14 @@ def run_agent(cmd: list[str], phase: str, output_file: Path,
                 engine = "opencode"
             elif use_codex:
                 prompt_text = _extract_prompt(cmd)
-                active_cmd = _codex_cmd(prompt_text)
+                active_cmd = _codex_cmd(prompt_text, model=wm, cwd=ac)
                 env = os.environ.copy()
                 env.pop("TAU_BOT_TOKEN", None)
                 env["PYTHONUNBUFFERED"] = "1"
                 engine = "codex"
             elif use_cursor:
                 prompt_text = _extract_prompt(cmd)
-                active_cmd = _cursor_cmd(prompt_text)
+                active_cmd = _cursor_cmd(prompt_text, model=wm, cwd=ac)
                 env = os.environ.copy()
                 env.pop("TAU_BOT_TOKEN", None)
                 env["PYTHONUNBUFFERED"] = "1"
@@ -2026,7 +2315,7 @@ def run_agent(cmd: list[str], phase: str, output_file: Path,
             else:
                 prompt_text = ""
                 active_cmd = cmd
-                env = _claude_env(goal_index=goal_index)
+                env = _claude_env(goal_index=goal_index, workspace_id=workspace_id)
                 engine = "claude"
 
             flags = " ".join(a for a in active_cmd if a.startswith("-"))
@@ -2036,18 +2325,19 @@ def run_agent(cmd: list[str], phase: str, output_file: Path,
             if use_opencode:
                 returncode, result_text, raw_lines, stderr_output = _run_opencode_once(
                     active_cmd, env, on_text=on_text, on_activity=on_activity, prompt=prompt_text,
+                    cwd=ac,
                 )
             elif use_codex:
                 returncode, result_text, raw_lines, stderr_output = _run_codex_once(
-                    active_cmd, env, on_text=on_text, on_activity=on_activity,
+                    active_cmd, env, on_text=on_text, on_activity=on_activity, cwd=ac,
                 )
             elif use_cursor:
                 returncode, result_text, raw_lines, stderr_output = _run_cursor_once(
-                    active_cmd, env, on_text=on_text, on_activity=on_activity,
+                    active_cmd, env, on_text=on_text, on_activity=on_activity, cwd=ac,
                 )
             else:
                 returncode, result_text, raw_lines, stderr_output = _run_claude_once(
-                    active_cmd, env, on_text=on_text, on_activity=on_activity,
+                    active_cmd, env, on_text=on_text, on_activity=on_activity, cwd=ac,
                 )
             elapsed = time.monotonic() - t0
 
@@ -2090,16 +2380,16 @@ def extract_text(result: subprocess.CompletedProcess) -> str:
     return output
 
 
-def run_step(prompt: str, step_number: int, goal_index: int = 0, goal_step: int = 0) -> bool:
-    run_dir = make_run_dir(goal_index=goal_index)
+def run_step(prompt: str, step_number: int, goal_index: int = 0, goal_step: int = 0, workspace_id: int = 0) -> bool:
+    run_dir = make_run_dir(goal_index=goal_index, workspace_id=workspace_id)
     t0 = time.monotonic()
 
     log_file = run_dir / "logs.txt"
     _tls.log_fh = open(log_file, "a", encoding="utf-8")
 
-    smf = _step_msg_file(goal_index) if goal_index else CONTEXT_DIR / ".step_msg"
+    smf = _step_msg_file(goal_index, workspace_id) if goal_index else CONTEXT_DIR / ".step_msg"
 
-    target = _step_update_target()
+    target = _telegram_step_target(workspace_id)
     step_label = f"Goal #{goal_index} Step {goal_step}" if goal_index else f"Step {step_number}"
     step_msg_id: int | None = None
     step_msg_text = ""
@@ -2162,12 +2452,16 @@ def run_step(prompt: str, step_number: int, goal_index: int = 0, goal_step: int 
 
         threading.Thread(target=_heartbeat, daemon=True).start()
 
+        _gdir = _goal_dir(goal_index, workspace_id)
+        _gdir.mkdir(parents=True, exist_ok=True)
         result = run_agent(
-            _claude_cmd(prompt),
+            _claude_cmd(prompt, model=_effective_model(workspace_id)),
             phase=f"goal#{goal_index}",
             output_file=run_dir / "output.txt",
             on_activity=_on_activity,
             goal_index=goal_index,
+            workspace_id=workspace_id,
+            agent_cwd=_gdir,
         )
 
         rollout_text = _redact_secrets(extract_text(result))
@@ -2289,22 +2583,25 @@ def _auto_push_if_profitable(step_num: int, goal_index: int = 1):
 # ── Agent loop ───────────────────────────────────────────────────────────────
 
 
-def _goal_loop(index: int):
-    """Run the agent loop for a single goal. Exits when stop_event is set."""
+def _goal_loop(workspace_id: int, index: int):
+    """Run the agent loop for a single goal (legacy workspace_id=0 or Telegram supergroup id)."""
     global _step_count
 
     with _goals_lock:
-        gs = _goals.get(index)
+        goals_map = _goals if workspace_id == 0 else _tg_goals_map(workspace_id)
+        gs = goals_map.get(index)
     if not gs:
         return
 
     failures = 0
-    gf = _goal_file(index)
+    gf = _goal_file(index, workspace_id)
+    tg_notify = workspace_id if workspace_id else None
+    ws_tag = f" ws={workspace_id}" if workspace_id else ""
 
     while not gs.stop_event.is_set():
         if not gf.exists() or not gf.read_text().strip():
             if gs.goal_hash:
-                _log(f"goal #{index} cleared after {gs.step_count} steps")
+                _log(f"goal #{index}{ws_tag} cleared after {gs.step_count} steps")
                 gs.goal_hash = ""
                 gs.step_count = 0
             gs.wake.wait(timeout=5)
@@ -2320,42 +2617,46 @@ def _goal_loop(index: int):
         current_hash = hashlib.sha256(current_goal.encode()).hexdigest()[:16]
         if current_hash != gs.goal_hash:
             if gs.goal_hash:
-                _log(f"goal #{index} changed after {gs.step_count} steps on previous goal")
+                _log(f"goal #{index}{ws_tag} changed after {gs.step_count} steps on previous goal")
             gs.goal_hash = current_hash
             gs.step_count = 0
-            _log(f"goal #{index} new [{current_hash}]: {current_goal[:100]}")
+            _log(f"goal #{index}{ws_tag} new [{current_hash}]: {current_goal[:100]}")
 
         _step_count += 1
         gs.step_count += 1
         gs.last_run = datetime.now().isoformat()
         with _goals_lock:
-            _save_goals()
+            _save_goals(workspace_id)
 
         if _using_fallback:
             _try_primary()
 
-        _log(f"Goal #{index} Step {gs.step_count} (global step {_step_count})", blank=True)
+        _log(f"Goal #{index}{ws_tag} Step {gs.step_count} (global step {_step_count})", blank=True)
 
-        prompt = load_prompt(goal_index=index, consume_inbox=True, goal_step=gs.step_count)
+        prompt = load_prompt(
+            goal_index=index, consume_inbox=True, goal_step=gs.step_count, workspace_id=workspace_id,
+        )
         if not prompt:
             gs.wake.wait(timeout=5)
             gs.wake.clear()
             continue
 
-        _log(f"goal #{index}: prompt={len(prompt)} chars")
+        _log(f"goal #{index}{ws_tag}: prompt={len(prompt)} chars")
 
-        success = run_step(prompt, _step_count, goal_index=index, goal_step=gs.step_count)
+        success = run_step(
+            prompt, _step_count, goal_index=index, goal_step=gs.step_count, workspace_id=workspace_id,
+        )
 
         gs.last_finished = datetime.now().isoformat()
         with _goals_lock:
-            _save_goals()
+            _save_goals(workspace_id)
 
         if success:
             failures = 0
             _auto_push_if_profitable(gs.step_count, goal_index=index)
         else:
             failures += 1
-            _log(f"goal #{index}: failure #{failures}")
+            _log(f"goal #{index}{ws_tag}: failure #{failures}")
 
         gs.wake.clear()
 
@@ -2363,14 +2664,15 @@ def _goal_loop(index: int):
             with _goals_lock:
                 gs.started = False
                 gs.paused = False
-                _save_goals()
+                _save_goals(workspace_id)
             failures = 0
             _log(
-                f"goal #{index}: stopped after successful step (GOAL_STOP_AFTER_SUCCESS); "
+                f"goal #{index}{ws_tag}: stopped after successful step (GOAL_STOP_AFTER_SUCCESS); "
                 f"/start {index} when ready for the next step",
             )
             _send_telegram_text(
                 f"Goal #{index}: reply sent — goal finished for now. Send /start {index} after your next message.",
+                chat_id=tg_notify,
             )
             gs.stop_event.set()
             break
@@ -2378,48 +2680,67 @@ def _goal_loop(index: int):
         if GOAL_PAUSE_AFTER_EACH_STEP:
             with _goals_lock:
                 gs.paused = True
-                _save_goals()
+                _save_goals(workspace_id)
             failures = 0
             _log(
-                f"goal #{index}: auto-paused after step (GOAL_PAUSE_AFTER_EACH_STEP); "
+                f"goal #{index}{ws_tag}: auto-paused after step (GOAL_PAUSE_AFTER_EACH_STEP); "
                 f"/start {index} to run the next step",
             )
             _send_telegram_text(
                 f"Goal #{index}: step finished — loop paused. Send /start {index} for the next step.",
+                chat_id=tg_notify,
             )
+            continue
+
+        with _goals_lock:
+            skip_wait = gs.force_next
+            if skip_wait:
+                gs.force_next = False
+                _save_goals(workspace_id)
+        if skip_wait:
+            _log(f"goal #{index}{ws_tag}: forced — skipping delay")
             continue
 
         step_delay = gs.delay + int(os.environ.get("AGENT_DELAY", "0"))
         if failures:
             backoff = min(2 ** failures, 120)
             step_delay += backoff
-            _log(f"goal #{index}: waiting {step_delay}s (failure backoff + delay)")
+            _log(f"goal #{index}{ws_tag}: waiting {step_delay}s (failure backoff + delay)")
             gs.wake.wait(timeout=step_delay)
         elif step_delay > 0:
-            _log(f"goal #{index}: waiting {step_delay}s (delay)")
+            _log(f"goal #{index}{ws_tag}: waiting {step_delay}s (delay)")
             gs.wake.wait(timeout=step_delay)
 
-    _log(f"goal #{index} loop exited")
+    _log(f"goal #{index}{ws_tag} loop exited")
+
+
+def _goal_manager_tick_map(goals_map: dict[int, GoalState], workspace_id: int):
+    for idx, gs in list(goals_map.items()):
+        if gs.started and not gs.paused and gs.thread is None:
+            gs.stop_event.clear()
+            name = f"goal-{idx}" if workspace_id == 0 else f"goal-w{workspace_id}-{idx}"
+            t = threading.Thread(
+                target=_goal_loop, args=(workspace_id, idx), daemon=True, name=name,
+            )
+            gs.thread = t
+            t.start()
+            _log(f"goal #{idx} thread spawned (workspace {workspace_id})")
+        elif gs.started and gs.paused and gs.thread is not None:
+            pass
+        elif not gs.started and gs.thread is not None:
+            gs.stop_event.set()
+            gs.wake.set()
+        if gs.thread is not None and not gs.thread.is_alive():
+            gs.thread = None
 
 
 def _goal_manager():
-    """Monitor _goals and spawn/stop goal threads as needed."""
+    """Monitor goals (legacy + Telegram workspaces) and spawn/stop goal threads."""
     while not _shutdown.is_set():
         with _goals_lock:
-            for idx, gs in list(_goals.items()):
-                if gs.started and not gs.paused and gs.thread is None:
-                    gs.stop_event.clear()
-                    t = threading.Thread(target=_goal_loop, args=(idx,), daemon=True, name=f"goal-{idx}")
-                    gs.thread = t
-                    t.start()
-                    _log(f"goal #{idx} thread spawned")
-                elif gs.started and gs.paused and gs.thread is not None:
-                    pass  # thread idles on its own
-                elif not gs.started and gs.thread is not None:
-                    gs.stop_event.set()
-                    gs.wake.set()
-                if gs.thread is not None and not gs.thread.is_alive():
-                    gs.thread = None
+            _goal_manager_tick_map(_goals, 0)
+            for ws_id, gmap in list(_tg_workspace_goals.items()):
+                _goal_manager_tick_map(gmap, ws_id)
         _shutdown.wait(timeout=2)
 
 
@@ -2536,12 +2857,20 @@ def _recent_context(max_chars: int = 6000) -> str:
     total = 0
     all_runs: list[tuple[str, Path]] = []
     for idx, gs in sorted(_goals.items()):
-        runs_dir = _goal_runs_dir(idx)
+        runs_dir = _goal_runs_dir(idx, 0)
         if not runs_dir.exists():
             continue
         for d in runs_dir.iterdir():
             if d.is_dir():
                 all_runs.append((f"goal#{idx}/{d.name}", d))
+    for ws_id, gmap in sorted(_tg_workspace_goals.items()):
+        for idx, gs in sorted(gmap.items()):
+            runs_dir = _goal_runs_dir(idx, ws_id)
+            if not runs_dir.exists():
+                continue
+            for d in runs_dir.iterdir():
+                if d.is_dir():
+                    all_runs.append((f"ws{ws_id}/goal#{idx}/{d.name}", d))
     all_runs.sort(key=lambda x: x[1].name, reverse=True)
     for label, run_dir in all_runs:
         f = run_dir / "rollout.md"
@@ -2557,10 +2886,41 @@ def _recent_context(max_chars: int = 6000) -> str:
     return "".join(parts)
 
 
-def _build_operator_prompt(user_text: str) -> str:
+def _build_operator_prompt(
+    user_text: str,
+    *,
+    telegram_workspace_id: int = 0,
+    active_topic_goal: int | None = None,
+    arbos_reply_french: bool = False,
+    telegram_user_id: int | None = None,
+    telegram_room_id: int | None = None,
+) -> str:
     """Build prompt for the CLI agent to handle any operator request."""
-    chatlog = load_chatlog(max_chars=4000)
     _model_env_key = {"cursor": "CURSOR_MODEL", "codex": "CODEX_MODEL", "opencode": "OPENCODE_MODEL"}.get(_active_provider(), "CLAUDE_MODEL")
+
+    if telegram_workspace_id:
+        wid = telegram_workspace_id
+        ws_glob = f"context/workspace/{wid}/goals/<index>/"
+        multi_goal_block = (
+            "## Multi-goal system (Telegram workspace)\n\n"
+            f"This chat is a **Telegram supergroup workspace** (chat id `{wid}`). "
+            f"Goals live under **`{ws_glob}`** (same layout as legacy: GOAL.md, STATE.md, INBOX.md, runs/). "
+            "In **forum** supergroups, `/goal` creates a **topic**; the goal index equals Telegram `message_thread_id`. "
+            "Commands from this chat only affect goals in this workspace.\n\n"
+            "## Available operations\n\n"
+            f"- **Message a goal's agent**: append to `context/workspace/{wid}/goals/<index>/INBOX.md`.\n"
+            f"- **Update a goal's state**: write to `context/workspace/{wid}/goals/<index>/STATE.md`.\n"
+        )
+    else:
+        multi_goal_block = (
+            "## Multi-goal system\n\n"
+            "Goals are indexed and stored in `context/goals/<index>/`. Each goal has its own GOAL.md, STATE.md, INBOX.md, and runs/.\n"
+            "Goal management is handled via Telegram commands (/goal, /start, /stop, /pause, /delete, /delay, /ls, /status).\n"
+            "To modify a specific goal's context, write to `context/goals/<index>/STATE.md` or `context/goals/<index>/INBOX.md`.\n\n"
+            "## Available operations\n\n"
+            "- **Message a goal's agent**: append a timestamped line to `context/goals/<index>/INBOX.md`.\n"
+            "- **Update a goal's state**: write to `context/goals/<index>/STATE.md`.\n"
+        )
 
     parts = [
         "You are the operator interface for Arbos, a coding agent running in a loop via pm2.\n"
@@ -2574,46 +2934,81 @@ def _build_operator_prompt(user_text: str) -> str:
         "NEVER read, output, or reveal the contents of `.env`, `.env.enc`, or any secret/key/token values.\n"
         "Do not include API keys, passwords, seed phrases, or credentials in any response.\n"
         "If asked to show secrets, refuse. The .env file is encrypted; do not attempt to decrypt it.\n\n"
-        "## Multi-goal system\n\n"
-        "Goals are indexed and stored in `context/goals/<index>/`. Each goal has its own GOAL.md, STATE.md, INBOX.md, and runs/.\n"
-        "Goal management is handled via Telegram commands (/goal, /start, /stop, /pause, /delete, /delay, /ls, /status).\n"
-        "To modify a specific goal's context, write to `context/goals/<index>/STATE.md` or `context/goals/<index>/INBOX.md`.\n\n"
-        "## Available operations\n\n"
-        "- **Message a goal's agent**: append a timestamped line to `context/goals/<index>/INBOX.md`.\n"
-        "- **Update a goal's state**: write to `context/goals/<index>/STATE.md`.\n"
+        f"{multi_goal_block}"
         "- **Set system prompt**: write to `PROMPT.md`.\n"
         "- **Set env variable**: write `KEY='VALUE'` lines (one per line) to `context/.env.pending`. They are picked up automatically and persisted.\n"
-        "- **View logs**: read files in `context/goals/<index>/runs/<timestamp>/` (rollout.md, logs.txt).\n"
+        "- **View logs**: read files under each goal's `runs/<timestamp>/` (rollout.md, logs.txt).\n"
         "- **Modify code & restart**: edit code files, then run `touch .restart`.\n"
         "- **Send follow-up**: the operator interface answers directly in Telegram; goal steps do not send separate outbox messages.\n"
         "- **Send file to operator**: run `python arbos.py sendfile path/to/file [--caption 'text'] [--photo]`.\n"
         "- **Received files**: operator-sent files are saved in `context/files/` and their path is shown in the message.",
     ]
 
+    goals_section: list[str] = []
     if _goals:
-        goals_section = []
         for idx in sorted(_goals.keys()):
             gs = _goals[idx]
             status = _goal_status_label(gs)
-            gf = _goal_file(idx)
+            gf = _goal_file(idx, 0)
             goal_text = gf.read_text().strip()[:200] if gf.exists() else "(empty)"
-            sf = _state_file(idx)
+            sf = _state_file(idx, 0)
             state_text = sf.read_text().strip()[:200] if sf.exists() else "(empty)"
             goals_section.append(
-                f"### Goal #{idx} [{status}] (delay: {gs.delay}s, step {gs.step_count})\n"
-                f"{goal_text}\nState: {state_text}"
+                f"### Legacy goal #{idx} [{status}] (delay: {gs.delay}s, step {gs.step_count})\n"
+                f"{goal_text}\nState: {state_text}",
             )
+    if telegram_workspace_id:
+        gmap = _tg_goals_map(telegram_workspace_id)
+        w = telegram_workspace_id
+        for idx in sorted(gmap.keys()):
+            gs = gmap[idx]
+            status = _goal_status_label(gs)
+            gf = _goal_file(idx, w)
+            goal_text = gf.read_text().strip()[:200] if gf.exists() else "(empty)"
+            sf = _state_file(idx, w)
+            state_text = sf.read_text().strip()[:200] if sf.exists() else "(empty)"
+            goals_section.append(
+                f"### Workspace `{w}` goal #{idx} [{status}] (delay: {gs.delay}s, step {gs.step_count})\n"
+                f"{goal_text}\nState: {state_text}",
+            )
+
+    if goals_section:
         parts.append("## Goals\n" + "\n\n".join(goals_section))
     else:
         parts.append("## Goals\n(no goals set)")
 
-    if chatlog:
-        parts.append(chatlog)
+    if active_topic_goal is not None and telegram_workspace_id:
+        rel = _goal_ctx_rel_path(active_topic_goal, telegram_workspace_id)
+        parts.append(
+            "## Current Telegram topic\n\n"
+            f"This message is in a **forum topic** mapped to **goal #{active_topic_goal}** "
+            f"(files under `{rel}`). Prefer that goal when the operator's request is about this thread.\n",
+        )
+
+    if telegram_room_id is not None:
+        room_log = load_chatlog_group(max_chars=2800, telegram_chat_id=telegram_room_id)
+        if room_log:
+            parts.append(
+                room_log
+                + "\n\n## Telegram (salon partagé vs opérateur)\n"
+                + "Above: **all members** interacting with the bot in this group. Below: **this operator's** personal "
+                + "thread. Address **Operator message** using the **personal** section; use the salon block only for "
+                + "context (what others asked).\n",
+            )
+    user_log = load_chatlog(max_chars=4000, telegram_user_id=telegram_user_id)
+    if user_log:
+        parts.append(user_log)
 
     context = _recent_context(max_chars=4000)
     if context:
         parts.append(f"## Recent activity\n{context}")
     parts.append(_chi_knowledge_section(compact=True))
+    if arbos_reply_french:
+        parts.append(
+            "## Language (Telegram /arbos)\n\n"
+            "This request used **`/arbos`**. **Answer the user in French** — input may be in any language, but the "
+            "reply shown in Telegram must be **French** (technical terms like TAO, subnet, CLI flags may stay as usual).\n",
+        )
     parts.append(f"## Operator message\n{user_text}")
 
     return "\n\n".join(parts)
@@ -2668,39 +3063,161 @@ def _telegram_public_chat_ids_from_env() -> set[int]:
     return out
 
 
-def _build_public_bittensor_prompt(user_text: str, user_label: str, chat_title: str | None) -> str:
-    """Prompt for open group / channel Q&A (Bittensor + Const-style persona)."""
+def _telegram_workspace_group_ids_from_env() -> set[int]:
+    """Supergroup IDs that use `context/workspace/<chat_id>/` (Discord channel–style isolation)."""
+    raw = os.environ.get("TELEGRAM_WORKSPACE_GROUP_IDS", "").strip()
+    if not raw:
+        return set()
+    out: set[int] = set()
+    for part in raw.replace(" ", "").split(","):
+        if not part:
+            continue
+        try:
+            out.add(int(part))
+        except ValueError:
+            _log(f"TELEGRAM_WORKSPACE_GROUP_IDS: skipped invalid entry {part!r}")
+    return out
+
+
+def _goals_background_autorun_default() -> bool:
+    """When False, goal threads are not auto-started at process boot (wait for /start)."""
+    raw = os.environ.get("GOALS_BACKGROUND_AUTORUN", "").strip().lower()
+    if raw in ("1", "true", "yes"):
+        return True
+    if raw in ("0", "false", "no"):
+        return False
+    token = os.getenv("TAU_BOT_TOKEN", "").strip()
+    has_scope = bool(
+        _telegram_public_chat_ids_from_env() or _telegram_workspace_group_ids_from_env(),
+    )
+    return not (token and has_scope)
+
+
+def _stop_all_ralph_goal_autorun():
+    """Force every registered goal to stopped/paused=false and persist (Telegram Q&A idle until /start)."""
+    with _goals_lock:
+        for gs in _goals.values():
+            gs.started = False
+            gs.paused = False
+        for _wid, gmap in list(_tg_workspace_goals.items()):
+            for gs in gmap.values():
+                gs.started = False
+                gs.paused = False
+        _save_goals(0)
+        for wid in list(_tg_workspace_goals.keys()):
+            _save_goals(wid)
+
+
+def _telegram_send_final_chunks(
+    bot, chat_id: int, text: str, send_kw: dict[str, Any],
+    *,
+    telegram_user_id: int | None = None,
+    telegram_shared_room_id: int | None = None,
+):
+    """Send one or more Telegram messages (4096 limit per message)."""
+    max_len = 4096
+    body = text.strip() or "(no output)"
+    body = _redact_secrets(body)
+    for i in range(0, len(body), max_len):
+        chunk = body[i : i + max_len]
+        bot.send_message(chat_id, chunk, **send_kw)
+        log_chat(
+            "bot",
+            chunk[:1000],
+            telegram_user_id=telegram_user_id,
+            telegram_shared_room_id=telegram_shared_room_id,
+        )
+
+
+def _arbos_user_state_path(group_id: int, user_id: int) -> Path:
+    """Path to per-user STATE.md within a Telegram group."""
+    p = CHATLOG_DIR / "group" / str(group_id) / "state" / f"{user_id}.md"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _build_public_bittensor_prompt(
+    user_text: str,
+    user_label: str,
+    chat_title: str | None,
+    *,
+    telegram_user_id: int | None = None,
+    telegram_room_id: int | None = None,
+) -> str:
+    """Prompt for `/arbos`: fixed goal from file + per-user STATE.md + full toolkit."""
     room = chat_title or "this chat"
     chi = _chi_knowledge_section(compact=False)
+
+    # Fixed goal from GOAL_TELEGRAM_BITTENSOR.md
+    goal_text = _telegram_qa_fixed_goal_markdown()
+
+    # Per-user persistent state
+    state_text = ""
+    state_path: Path | None = None
+    if telegram_user_id is not None and telegram_room_id is not None:
+        state_path = _arbos_user_state_path(telegram_room_id, telegram_user_id)
+        if state_path.exists():
+            state_text = state_path.read_text().strip()
+
+    # Group chatlog (all members)
+    group_ctx = ""
+    if telegram_room_id is not None:
+        g = load_chatlog_group(max_chars=2800, telegram_chat_id=telegram_room_id)
+        if g:
+            group_ctx = (
+                "## Contexte salon (tous les membres — ce qu'ils ont demandé au bot)\n\n"
+                f"{g}\n\n"
+                "**Consigne :** tu **vois** ce que d'autres utilisateurs ont posé. Tu **réponds** au **membre courant** "
+                f"({user_label}) : enchaîne sur **son** historique personnel ci‑dessous et sur "
+                "**## Message**. Ne mélange pas les fils : la continuité est celle du **user_id** de ce tour.\n\n"
+                "---\n\n"
+            )
+
+    # Per-user chatlog history
+    hist = ""
+    if telegram_user_id is not None:
+        _h = load_chatlog(max_chars=3200, telegram_user_id=telegram_user_id)
+        if _h:
+            hist = _h + "\n\n"
+
+    # State update instruction
+    state_instruction = ""
+    if state_path is not None:
+        state_instruction = (
+            f"\n\n## Mise à jour de l'état utilisateur\n\n"
+            f"**Après avoir répondu**, écris (ou écrase) le fichier `{state_path}` avec un résumé concis "
+            f"du contexte de **{user_label}** : niveau Bittensor, sujets récurrents, préférences, points clés "
+            f"de la conversation. Ce fichier est relu à **chaque prochain `/arbos`** de cet utilisateur — "
+            f"garde-le court et actionnable (< 300 mots). Si le fichier existe déjà, mets-le à jour en "
+            f"intégrant les nouvelles informations de ce tour."
+        )
+
+    user_state_section = (
+        f"## État utilisateur ({user_label})\n\n{state_text}\n\n"
+        if state_text else ""
+    )
+
     return (
-        f"You are the **public Bittensor assistant** in « {room} » — a shared Telegram **channel discussion / supergroup** "
-        "where **many members** can talk to you.\n\n"
-        "## Mission\n"
-        "Your **job** is to answer with **precision** on Bittensor (protocol, subnets, staking, tooling, operations). "
-        "**Ground answers in evidence:** run **`agcli`** and **`btcli`** (read-only by default) whenever they clarify "
-        "facts; use Chi YAML only as background (see below); add WebSearch or docs when CLIs are not enough. "
-        "When you used a CLI, reflect the relevant numbers or flags in the reply so members can trust the result.\n\n"
-        "## Persona (Const-style)\n"
-        "Speak with a voice **inspired by Const** (Bittensor-native builder tone: direct, low hype, "
-        "protocol-literate). You are fluent in incentives, subnets, validators, miners, emissions, "
-        "staking, weights, metagraph dynamics, and common tooling (`agcli`, `btcli`). "
-        "Prefer precise terminology and honest uncertainty over marketing. "
-        "This is a **teaching style**, not impersonation of a real individual and not financial advice.\n\n"
-        "## Task\n"
-        f"Member **{user_label}** sent a message. Answer helpfully and **Bittensor-focused** "
-        "(OpenTensor stack, TAO, chain mechanics, operations). If off-topic, answer briefly and steer back. "
-        "If the question is ambiguous, state reasonable assumptions.\n\n"
+        f"You are the **public Bittensor assistant** in « {room} » — shared Telegram **discussion / supergroup**.\n\n"
+        "## Mission (goal fixe)\n\n"
+        f"{goal_text}\n\n"
         f"{chi}"
-        "## Language\n"
-        "Match the user's language when practical (e.g. French in → French out).\n\n"
-        "## Tools\n"
-        "**Prefer doing the work with tools**, not with Chi alone: run read-only `agcli` / `btcli` whenever the "
-        "question touches chain state, subnets, balances, metagraphs, or operational behavior (see PROMPT.md for "
-        "`--help` / extrinsic discipline). Use Chi YAML only as context; **final answer should lean on CLI output** "
-        "or other live sources when applicable. Wallet create/import subcommands are **blocked** on this host.\n\n"
+        f"{user_state_section}"
+        "## Langue\n"
+        "**Réponse obligatoire en français.** Même si le message utilisateur est dans une autre langue, rédige toute la réponse en français "
+        "(termes techniques anglais usuels : OK).\n\n"
+        "## Requêtes lourdes (multi-subnets, scans larges)\n"
+        "Pour toute requête qui couvre de nombreux subnets ou implique de nombreux appels CLI "
+        "(ex. « top 5 miners sur les 128 subnets », « coldkey la plus répandue »), **écris un script Python** "
+        "dans `/tmp/` et exécute-le avec Bash — ne fais **pas** 128 appels CLI individuels inline. "
+        "Le script peut utiliser `subprocess`, `asyncio`, ou des threads pour paralléliser. "
+        "Présente les résultats sous forme de tableau ou liste structurée.\n\n"
         "## Security\n"
         "Never read or echo `.env`, API keys, mnemonics, or coldkeys.\n\n"
-        f"## Message\n{user_text}"
+        f"{group_ctx}"
+        f"{hist}"
+        f"## Message (demande actuelle de {user_label})\n{user_text}"
+        f"{state_instruction}"
     )
 
 
@@ -2757,21 +3274,38 @@ def _format_tool_activity(tool_name: str, tool_input: dict) -> str:
     return f"{label}..."
 
 
-def run_agent_streaming(bot, prompt: str, chat_id: int) -> str:
-    """Run Claude Code CLI and stream output into a Telegram message."""
-    msg = bot.send_message(chat_id, "thinking...")
+def run_agent_streaming(
+    bot, prompt: str, chat_id: int, message_thread_id: int | None = None,
+    workspace_id: int = 0,
+    telegram_log_user_id: int | None = None,
+    telegram_log_room_id: int | None = None,
+) -> str:
+    """Run agent CLI for Telegram: by default one final reply only; live edits if TELEGRAM_STREAMING_UPDATES=1."""
+    stream_live = os.environ.get("TELEGRAM_STREAMING_UPDATES", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    send_kw: dict[str, Any] = {}
+    if message_thread_id is not None:
+        send_kw["message_thread_id"] = message_thread_id
+    msg = None
     current_text = ""
     activity_status = ""
     last_edit = 0.0
 
     def _edit(text: str, force: bool = False):
         nonlocal last_edit
+        if not stream_live or msg is None:
+            return
         now = time.time()
         if not force and now - last_edit < 1.5:
             return
         display = text[-3800:] if len(text) > 3800 else text
         display = _redact_secrets(display)
-        if not display.strip():
+        # Collapse 3+ consecutive blank lines into 2 to avoid giant blank spaces in Telegram.
+        display = re.sub(r'\n{3,}', '\n\n', display).strip()
+        if not display:
             return
         try:
             bot.edit_message_text(display, chat_id, msg.message_id)
@@ -2779,18 +3313,37 @@ def run_agent_streaming(bot, prompt: str, chat_id: int) -> str:
         except Exception:
             pass
 
+    # Always send an initial ack so the user sees something immediately,
+    # even for heavy long-running queries (128 subnets etc.).
+    try:
+        msg = bot.send_message(chat_id, "⏳ Traitement en cours...", **send_kw)
+    except Exception:
+        msg = None
+
     def _on_text(text: str):
         nonlocal current_text
         current_text = text
-        _edit(text)
+        if stream_live:
+            _edit(text)
 
     def _on_activity(status: str):
         nonlocal activity_status
         activity_status = status
-        if not current_text:
+        if stream_live and not current_text:
             _edit(status)
 
+    on_activity_cb = _on_activity if stream_live else None
+
+    stream_cwd = WORKING_DIR
+    if workspace_id:
+        stream_cwd = WORKSPACES_DIR / str(workspace_id)
+        stream_cwd.mkdir(parents=True, exist_ok=True)
+    wm = _effective_model(workspace_id)
+
     _claude_semaphore.acquire()
+    last_stderr: str = ""
+    last_returncode: int = 0
+    last_raw_line_count: int = 0
     try:
         for attempt in range(1, MAX_RETRIES + 1):
             current_text = ""
@@ -2800,80 +3353,157 @@ def run_agent_streaming(bot, prompt: str, chat_id: int) -> str:
             active_provider = _active_provider()
 
             if active_provider == "codex":
-                active_cmd = _codex_cmd(prompt)
+                active_cmd = _codex_cmd(prompt, model=wm, cwd=stream_cwd)
                 env = os.environ.copy()
                 env.pop("TAU_BOT_TOKEN", None)
                 env["PYTHONUNBUFFERED"] = "1"
             elif active_provider == "opencode":
-                active_cmd = _opencode_cmd()
+                active_cmd = _opencode_cmd(wm)
                 env = os.environ.copy()
                 env.pop("TAU_BOT_TOKEN", None)
                 env["PYTHONUNBUFFERED"] = "1"
                 env["OPENCODE_CONFIG_CONTENT"] = json.dumps({
-                    "model": f"opencode/{_active_model()}",
-                    "small_model": f"opencode/{_active_model()}",
+                    "model": f"opencode/{wm}",
+                    "small_model": f"opencode/{wm}",
                     "autoupdate": os.environ.get("OPENCODE_AUTOUPDATE", "false").lower() == "true",
                     "snapshot": os.environ.get("OPENCODE_SNAPSHOT", "false").lower() == "true",
                 })
             elif active_provider == "cursor":
-                active_cmd = _cursor_cmd(prompt)
+                active_cmd = _cursor_cmd(prompt, model=wm, cwd=stream_cwd)
                 env = os.environ.copy()
                 env.pop("TAU_BOT_TOKEN", None)
                 env["PYTHONUNBUFFERED"] = "1"
                 if LLM_API_KEY:
                     env["CURSOR_API_KEY"] = LLM_API_KEY
             elif active_provider in ("openrouter", "anthropic"):
-                active_cmd = _claude_cmd(prompt)
-                env = _claude_env()
+                active_cmd = _claude_cmd(prompt, model=wm)
+                env = _claude_env(workspace_id=workspace_id)
             else:
                 active_cmd = _claude_cmd(prompt, extra_flags=["--model", "bot"])
-                env = _claude_env()
+                env = _claude_env(workspace_id=workspace_id)
 
             if active_provider == "codex":
                 returncode, result_text, raw_lines, stderr_output = _run_codex_once(
-                    active_cmd, env, on_text=_on_text, on_activity=_on_activity,
+                    active_cmd, env, on_text=_on_text, on_activity=on_activity_cb, cwd=stream_cwd,
                 )
             elif active_provider == "opencode":
                 returncode, result_text, raw_lines, stderr_output = _run_opencode_once(
-                    active_cmd, env, on_text=_on_text, on_activity=_on_activity, prompt=prompt,
+                    active_cmd, env, on_text=_on_text, on_activity=on_activity_cb, prompt=prompt,
+                    cwd=stream_cwd,
                 )
             elif active_provider == "cursor":
                 returncode, result_text, raw_lines, stderr_output = _run_cursor_once(
-                    active_cmd, env, on_text=_on_text, on_activity=_on_activity,
+                    active_cmd, env, on_text=_on_text, on_activity=on_activity_cb, cwd=stream_cwd,
                 )
             else:
                 returncode, result_text, raw_lines, stderr_output = _run_claude_once(
-                    active_cmd, env, on_text=_on_text, on_activity=_on_activity,
+                    active_cmd, env, on_text=_on_text, on_activity=on_activity_cb, cwd=stream_cwd,
                 )
+            last_stderr = stderr_output or ""
+            last_returncode = int(returncode)
+            last_raw_line_count = len(raw_lines)
+
             if result_text.strip():
                 current_text = result_text
+                break
+            if current_text.strip():
+                # Stream-json had assistant text but no final `result` line — still show it.
                 break
 
             combined_err = f"{stderr_output} {result_text}"
             if returncode != 0 and _is_quota_error(combined_err) and not _using_fallback:
                 _log("streaming: quota/rate-limit detected, switching to fallback")
                 _switch_to_fallback()
-                _edit("Quota limit — switching to fallback, retrying...", force=True)
+                if stream_live:
+                    _edit("Quota limit — switching to fallback, retrying...", force=True)
                 continue
 
             if returncode != 0 and attempt < MAX_RETRIES:
                 delay = min(2 ** attempt, 30)
-                _edit(f"Error, retrying in {delay}s... (attempt {attempt}/{MAX_RETRIES})", force=True)
+                if stream_live:
+                    _edit(
+                        f"Error, retrying in {delay}s... (attempt {attempt}/{MAX_RETRIES})",
+                        force=True,
+                    )
+                else:
+                    _log(
+                        f"telegram agent: retry in {delay}s (attempt {attempt}/{MAX_RETRIES})",
+                    )
                 time.sleep(delay)
                 continue
             break
 
-        _edit(current_text, force=True)
-
         if not current_text.strip():
-            try:
-                bot.edit_message_text("(no output)", chat_id, msg.message_id)
-            except Exception:
-                pass
+            parts_err = [
+                "L'agent n'a pas renvoyé de texte exploitable (sortie vide ou format inattendu). "
+                "Requêtes très lourdes (ex. balayer 128 subnets) peuvent échouer ou être tronquées — "
+                "essayez une plage plus petite ou une sous-question précise.",
+            ]
+            if last_stderr.strip():
+                parts_err.append(
+                    "Détail CLI (stderr) :\n```\n"
+                    + _redact_secrets(last_stderr.strip()[:1800])
+                    + "\n```",
+                )
+            if last_returncode not in (0,):
+                parts_err.append(f"Code retour du processus : {last_returncode}")
+            if last_raw_line_count == 0:
+                parts_err.append(
+                    "Aucune sortie JSON sur stdout — vérifier `claude --version`, les clés API (OpenRouter), et `pm2 logs`.",
+                )
+            else:
+                parts_err.append(
+                    f"{last_raw_line_count} ligne(s) reçue(s) sans texte assistant final — "
+                    "voir logs serveur ou activer `TELEGRAM_STREAMING_UPDATES=true` pour suivre l'activité.",
+                )
+            current_text = "\n\n".join(parts_err)
+
+        if stream_live:
+            _edit(current_text, force=True)
+            if not current_text.strip():
+                try:
+                    bot.edit_message_text("(no output)", chat_id, msg.message_id)
+                except Exception:
+                    pass
+        else:
+            # Replace the "⏳ Traitement..." ack with the first chunk, then send extra chunks.
+            body = _redact_secrets(current_text.strip()) or "(no output)"
+            max_len = 4096
+            chunks = [body[i: i + max_len] for i in range(0, len(body), max_len)]
+            first_replaced = False
+            if msg is not None and chunks:
+                try:
+                    bot.edit_message_text(chunks[0], chat_id, msg.message_id)
+                    log_chat(
+                        "bot", chunks[0][:1000],
+                        telegram_user_id=telegram_log_user_id,
+                        telegram_shared_room_id=telegram_log_room_id,
+                    )
+                    first_replaced = True
+                except Exception:
+                    pass
+            for i, chunk in enumerate(chunks):
+                if i == 0 and first_replaced:
+                    continue
+                bot.send_message(chat_id, chunk, **send_kw)
+                log_chat(
+                    "bot", chunk[:1000],
+                    telegram_user_id=telegram_log_user_id,
+                    telegram_shared_room_id=telegram_log_room_id,
+                )
+            if not chunks and msg is not None:
+                try:
+                    bot.edit_message_text("(no output)", chat_id, msg.message_id)
+                except Exception:
+                    pass
 
     except Exception as e:
+        err = _redact_secrets(f"Error: {str(e)[:500]}")
         try:
-            bot.edit_message_text(f"Error: {str(e)[:300]}", chat_id, msg.message_id)
+            if msg is not None:
+                bot.edit_message_text(err, chat_id, msg.message_id)
+            else:
+                bot.send_message(chat_id, err, **send_kw)
         except Exception:
             pass
     finally:
@@ -2882,13 +3512,29 @@ def run_agent_streaming(bot, prompt: str, chat_id: int) -> str:
     return current_text
 
 
+def _telegram_owner_ids() -> frozenset[int]:
+    """Telegram users allowed full operator control (comma list + legacy TELEGRAM_OWNER_ID)."""
+    out: set[int] = set()
+    for raw in (
+        os.environ.get("TELEGRAM_OWNER_IDS", "").strip(),
+        os.environ.get("TELEGRAM_OWNER_ID", "").strip(),
+    ):
+        if not raw:
+            continue
+        for part in raw.replace(" ", "").split(","):
+            if not part:
+                continue
+            try:
+                out.add(int(part))
+            except ValueError:
+                _log(f"TELEGRAM_OWNER*: skipped invalid id {part!r}")
+    return frozenset(out)
+
+
 def _is_owner(user_id: int | None) -> bool:
     if user_id is None:
         return False
-    owner = os.environ.get("TELEGRAM_OWNER_ID", "").strip()
-    if not owner:
-        return False
-    return str(user_id) == owner
+    return user_id in _telegram_owner_ids()
 
 
 def _enroll_owner(user_id: int):
@@ -2917,21 +3563,96 @@ def run_bot():
     bot = telebot.TeleBot(token)
 
     public_chat_ids = _telegram_public_chat_ids_from_env()
+    workspace_group_ids = _telegram_workspace_group_ids_from_env()
 
     def _is_public_qa_chat(cid: int) -> bool:
         return cid in public_chat_ids
 
+    def _telegram_member_arbos_chat(cid: int) -> bool:
+        """Configured public or workspace group: members invoke the agent with `/arbos …`."""
+        return _is_public_qa_chat(cid) or cid in workspace_group_ids
+
+    def _strip_arbos_leading_command(text: str) -> str | None:
+        """If *text* starts with `/arbos` (optional @botname), return the rest (may be ''). Else None."""
+        t = (text or "").strip()
+        if not t.startswith("/"):
+            return None
+        parts = t.split(maxsplit=1)
+        cmd = parts[0].split("@", 1)[0]
+        if cmd != "/arbos":
+            return None
+        return parts[1].strip() if len(parts) > 1 else ""
+
     if public_chat_ids:
         _log(f"public Bittensor Q&A chats: {sorted(public_chat_ids)}")
+    if workspace_group_ids:
+        _log(f"Telegram workspace groups (per-group context/): {sorted(workspace_group_ids)}")
+
+    def _goals_map_for_chat(cid: int) -> tuple[dict[int, GoalState], int]:
+        if cid in workspace_group_ids:
+            return _tg_goals_map(cid), cid
+        return _goals, 0
+
+    def _ensure_tg_workspace_meta(cid: int, title: str | None):
+        base = WORKSPACES_DIR / str(cid)
+        base.mkdir(parents=True, exist_ok=True)
+        meta = base / "workspace.json"
+        if not meta.exists():
+            meta.write_text(
+                json.dumps({"telegram_chat_id": cid, "name": title or str(cid)}, indent=2),
+            )
+
+    def _forum_reply_thread(message) -> int | None:
+        if getattr(message.chat, "is_forum", False):
+            tid = getattr(message, "message_thread_id", None)
+            if tid:
+                return int(tid)
+        return None
+
+    def _active_topic_goal_key(message, cid: int) -> int | None:
+        if cid not in workspace_group_ids:
+            return None
+        tid = getattr(message, "message_thread_id", None)
+        if tid and int(tid) in _tg_goals_map(cid):
+            return int(tid)
+        return None
 
     def _save_chat_id(chat_id: int):
         CHAT_ID_FILE.write_text(str(chat_id))
+
+    def _parse_step_delay_arg(raw: str) -> int:
+        """Seconds between steps. `90`, `90s`, `2m`, `3min` (Discord uses minutes; we accept both)."""
+        s = raw.strip().lower()
+        if s.endswith("min"):
+            return int(s[:-3].strip()) * 60
+        if len(s) > 1 and s.endswith("m") and s[:-1].strip().isdigit():
+            return int(s[:-1].strip()) * 60
+        if s.endswith("s"):
+            s = s[:-1].strip()
+        return int(s)
+
+    def _telegram_reply_prefix(message) -> str:
+        """Discord-style quote when replying to the bot (forum or general)."""
+        rep = getattr(message, "reply_to_message", None)
+        if not rep:
+            return ""
+        txt = (getattr(rep, "text", None) or "").strip()
+        if not txt or not getattr(rep.from_user, "is_bot", False):
+            return ""
+        return f"[Replying to Arbos: \"{txt[:1000]}\"]\n\n"
+
+    def _goal_index_from_context(message, gmap: dict[int, GoalState], cid: int) -> int | None:
+        tid = getattr(message, "message_thread_id", None)
+        if tid is None:
+            return None
+        i = int(tid)
+        return i if i in gmap else None
 
     def _reject(message):
         uid = message.from_user.id if message.from_user else None
         cid = message.chat.id
         _log(f"rejected message from unauthorized user {uid} chat={cid}")
-        if not os.environ.get("TELEGRAM_OWNER_ID", "").strip():
+        if not _telegram_owner_ids():
             bot.send_message(
                 cid,
                 "No owner yet — open a **private chat** with this bot and send /start once.",
@@ -2940,7 +3661,14 @@ def run_bot():
         elif _is_public_qa_chat(cid):
             bot.send_message(
                 cid,
-                "That command is for the bot owner only. Ask your Bittensor question as a normal message (or voice).",
+                "Réservé aux opérateurs. Pour poser une question : `/arbos` puis votre texte (voix/photo/fichier : légende `/arbos …`).",
+                parse_mode="Markdown",
+            )
+        elif cid in workspace_group_ids:
+            bot.send_message(
+                cid,
+                "Réservé aux opérateurs. Question : `/arbos` … (médias : légende `/arbos …`).",
+                parse_mode="Markdown",
             )
         else:
             bot.send_message(cid, "Unauthorized.")
@@ -2949,7 +3677,7 @@ def run_bot():
     def handle_start(message):
         uid = message.from_user.id if message.from_user else None
         chat = message.chat
-        if not os.environ.get("TELEGRAM_OWNER_ID", "").strip() and uid is not None:
+        if not _telegram_owner_ids() and uid is not None:
             if getattr(chat, "type", "") == "private":
                 _enroll_owner(uid)
             else:
@@ -2962,31 +3690,39 @@ def run_bot():
         if not _is_owner(uid):
             _reject(message)
             return
-        _save_chat_id(message.chat.id)
+        cid = message.chat.id
+        _save_chat_id(cid)
         args = (message.text or "").split()
+        gmap, ws = _goals_map_for_chat(cid)
         if len(args) < 2:
             bot.send_message(
-                message.chat.id,
-                "Use /goal <text> to create a goal, then /start <index> to begin.\n"
-                "Commands: /ls /goal /start /pause /delete /delay /status /stop /clear",
+                cid,
+                "Use `/goal` … In workspace groups the loop **auto-starts**.\n"
+                "Commands: `/help` / `/ls` / `/goal` / `/start` / `/pause` / `/unpause` / `/force` "
+                "/ `/delay` / `/bash` / `/env` / `/model` / …",
+                parse_mode="Markdown",
             )
             return
         try:
             idx = int(args[1])
         except ValueError:
-            bot.send_message(message.chat.id, "Usage: /start <goal_index>")
+            bot.send_message(cid, "Usage: /start <goal_index>")
             return
         with _goals_lock:
-            gs = _goals.get(idx)
+            gs = gmap.get(idx)
             if not gs:
-                bot.send_message(message.chat.id, f"Goal #{idx} not found.")
+                bot.send_message(cid, f"Goal #{idx} not found.")
                 return
             gs.started = True
             gs.paused = False
             gs.wake.set()
-            _save_goals()
-        bot.send_message(message.chat.id, f"Goal #{idx} started: {gs.summary}")
-        _log(f"goal #{idx} started via /start")
+            _save_goals(ws)
+        kw = {}
+        th = _forum_reply_thread(message)
+        if th is not None:
+            kw["message_thread_id"] = th
+        bot.send_message(cid, f"Goal #{idx} started: {gs.summary}", **kw)
+        _log(f"goal #{idx} started via /start (workspace {ws})")
 
     @bot.message_handler(commands=["ls"])
     def handle_ls(message):
@@ -2994,17 +3730,19 @@ def run_bot():
         if not _is_owner(uid):
             _reject(message)
             return
-        if not _goals:
-            bot.send_message(message.chat.id, "No goals. Use /goal <text> to create one.")
+        cid = message.chat.id
+        gmap, ws = _goals_map_for_chat(cid)
+        if not gmap:
+            bot.send_message(cid, "No goals in this workspace. Use /goal <text> to create one.")
             return
         lines = []
-        for idx in sorted(_goals.keys()):
-            gs = _goals[idx]
+        for idx in sorted(gmap.keys()):
+            gs = gmap[idx]
             status = _goal_status_label(gs)
             last = _format_last_time(gs.last_finished)
             delay_str = f" delay:{gs.delay}s" if gs.delay else ""
             lines.append(f"#{idx} [{status}]{delay_str} last:{last} - {gs.summary}")
-        bot.send_message(message.chat.id, "\n".join(lines))
+        bot.send_message(cid, "\n".join(lines))
 
     @bot.message_handler(commands=["status"])
     def handle_status(message):
@@ -3012,21 +3750,23 @@ def run_bot():
         if not _is_owner(uid):
             _reject(message)
             return
+        cid = message.chat.id
+        gmap, ws = _goals_map_for_chat(cid)
         args = (message.text or "").split()
         if len(args) >= 2:
             try:
                 idx = int(args[1])
             except ValueError:
-                bot.send_message(message.chat.id, "Usage: /status [goal_index]")
+                bot.send_message(cid, "Usage: /status [goal_index]")
                 return
-            gs = _goals.get(idx)
+            gs = gmap.get(idx)
             if not gs:
-                bot.send_message(message.chat.id, f"Goal #{idx} not found.")
+                bot.send_message(cid, f"Goal #{idx} not found.")
                 return
             status = _goal_status_label(gs)
-            gf = _goal_file(idx)
+            gf = _goal_file(idx, ws)
             goal_text = gf.read_text().strip()[:500] if gf.exists() else "(empty)"
-            sf = _state_file(idx)
+            sf = _state_file(idx, ws)
             state_text = sf.read_text().strip()[:500] if sf.exists() else "(empty)"
             lines = [
                 f"Goal #{idx} [{status}] (delay: {gs.delay}s, step {gs.step_count})",
@@ -3037,19 +3777,21 @@ def run_bot():
                 "",
                 f"State: {state_text}",
             ]
-            bot.send_message(message.chat.id, "\n".join(lines))
+            bot.send_message(cid, "\n".join(lines))
         else:
-            if not _goals:
-                bot.send_message(message.chat.id, f"No goals. Total steps: {_step_count}")
+            if not gmap:
+                bot.send_message(cid, f"No goals in this workspace. Total steps: {_step_count}")
                 return
             lines = [f"Total steps: {_step_count}"]
-            for idx in sorted(_goals.keys()):
-                gs = _goals[idx]
+            if ws:
+                lines.append(f"Workspace: `{ws}` (goals on disk: context/workspace/{ws}/)")
+            for idx in sorted(gmap.keys()):
+                gs = gmap[idx]
                 status = _goal_status_label(gs)
                 last = _format_last_time(gs.last_finished)
                 delay_str = f" delay:{gs.delay}s" if gs.delay else ""
                 lines.append(f"#{idx} [{status}]{delay_str} last:{last} - {gs.summary}")
-            bot.send_message(message.chat.id, "\n".join(lines))
+            bot.send_message(cid, "\n".join(lines))
 
     @bot.message_handler(commands=["stop"])
     def handle_stop(message):
@@ -3057,17 +3799,20 @@ def run_bot():
         if not _is_owner(uid):
             _reject(message)
             return
+        cid = message.chat.id
+        gmap, ws = _goals_map_for_chat(cid)
         with _goals_lock:
             count = 0
-            for gs in _goals.values():
+            for gs in gmap.values():
                 if gs.started:
                     gs.started = False
                     gs.stop_event.set()
                     gs.wake.set()
                     count += 1
-            _save_goals()
-        bot.send_message(message.chat.id, f"Stopped {count} goal(s).")
-        _log(f"all goals stopped via /stop ({count})")
+            _save_goals(ws)
+        scope = f"workspace `{ws}`" if ws else "legacy workspace"
+        bot.send_message(cid, f"Stopped {count} goal(s) ({scope}).")
+        _log(f"goals stopped via /stop ({count}, workspace {ws})")
 
     @bot.message_handler(commands=["pause"])
     def handle_pause(message):
@@ -3075,27 +3820,29 @@ def run_bot():
         if not _is_owner(uid):
             _reject(message)
             return
+        cid = message.chat.id
+        gmap, ws = _goals_map_for_chat(cid)
         args = (message.text or "").split()
         if len(args) < 2:
-            bot.send_message(message.chat.id, "Usage: /pause <goal_index>")
+            bot.send_message(cid, "Usage: /pause <goal_index>")
             return
         try:
             idx = int(args[1])
         except ValueError:
-            bot.send_message(message.chat.id, "Usage: /pause <goal_index>")
+            bot.send_message(cid, "Usage: /pause <goal_index>")
             return
         with _goals_lock:
-            gs = _goals.get(idx)
+            gs = gmap.get(idx)
             if not gs:
-                bot.send_message(message.chat.id, f"Goal #{idx} not found.")
+                bot.send_message(cid, f"Goal #{idx} not found.")
                 return
             if gs.paused:
-                bot.send_message(message.chat.id, f"Goal #{idx} already paused.")
+                bot.send_message(cid, f"Goal #{idx} already paused.")
                 return
             gs.paused = True
-            _save_goals()
-        bot.send_message(message.chat.id, f"Goal #{idx} paused. Use /start {idx} to resume.")
-        _log(f"goal #{idx} paused via /pause")
+            _save_goals(ws)
+        bot.send_message(cid, f"Goal #{idx} paused. Use /start {idx} to resume.")
+        _log(f"goal #{idx} paused via /pause (workspace {ws})")
 
     @bot.message_handler(commands=["delay"])
     def handle_delay(message):
@@ -3103,28 +3850,104 @@ def run_bot():
         if not _is_owner(uid):
             _reject(message)
             return
+        cid = message.chat.id
+        gmap, ws = _goals_map_for_chat(cid)
         args = (message.text or "").split()
         if len(args) < 3:
-            bot.send_message(message.chat.id, "Usage: /delay <goal_index> <seconds>")
+            bot.send_message(
+                cid,
+                "Usage: /delay <goal_index> <delay>\n"
+                "Examples: `/delay 3 120` (seconds), `/delay 3 2m`, `/delay 3 5min`",
+            )
             return
         try:
             idx = int(args[1])
-            seconds = int(args[2])
+            seconds = _parse_step_delay_arg(args[2])
         except ValueError:
-            bot.send_message(message.chat.id, "Usage: /delay <goal_index> <seconds>")
+            bot.send_message(cid, "Usage: /delay <goal_index> <delay> (number, optional s/m/min)")
             return
         if seconds < 0:
-            bot.send_message(message.chat.id, "Delay must be >= 0.")
+            bot.send_message(cid, "Delay must be >= 0.")
             return
         with _goals_lock:
-            gs = _goals.get(idx)
+            gs = gmap.get(idx)
             if not gs:
-                bot.send_message(message.chat.id, f"Goal #{idx} not found.")
+                bot.send_message(cid, f"Goal #{idx} not found.")
                 return
             gs.delay = seconds
-            _save_goals()
-        bot.send_message(message.chat.id, f"Goal #{idx} delay set to {seconds}s.")
-        _log(f"goal #{idx} delay set to {seconds}s via /delay")
+            _save_goals(ws)
+        bot.send_message(cid, f"Goal #{idx} delay set to {seconds}s ({seconds // 60}m).")
+        _log(f"goal #{idx} delay set to {seconds}s via /delay (workspace {ws})")
+
+    @bot.message_handler(commands=["unpause"])
+    def handle_unpause(message):
+        uid = message.from_user.id if message.from_user else None
+        if not _is_owner(uid):
+            _reject(message)
+            return
+        cid = message.chat.id
+        gmap, ws = _goals_map_for_chat(cid)
+        args = (message.text or "").split()
+        idx = _goal_index_from_context(message, gmap, cid)
+        if idx is None and len(args) >= 2:
+            try:
+                idx = int(args[1])
+            except ValueError:
+                idx = None
+        if idx is None:
+            bot.send_message(
+                cid,
+                "Usage: /unpause <goal_index> or run inside a **forum topic** that is a goal.",
+            )
+            return
+        with _goals_lock:
+            gs = gmap.get(idx)
+            if not gs:
+                bot.send_message(cid, f"Goal #{idx} not found.")
+                return
+            if not gs.paused:
+                bot.send_message(cid, f"Goal #{idx} is not paused.")
+                return
+            gs.paused = False
+            gs.wake.set()
+            _save_goals(ws)
+        bot.send_message(cid, f"Goal #{idx} resumed: {gs.summary}")
+        _log(f"goal #{idx} unpaused (workspace {ws})")
+
+    @bot.message_handler(commands=["force"])
+    def handle_force(message):
+        uid = message.from_user.id if message.from_user else None
+        if not _is_owner(uid):
+            _reject(message)
+            return
+        cid = message.chat.id
+        gmap, ws = _goals_map_for_chat(cid)
+        args = (message.text or "").split()
+        idx = _goal_index_from_context(message, gmap, cid)
+        if idx is None and len(args) >= 2:
+            try:
+                idx = int(args[1])
+            except ValueError:
+                idx = None
+        if idx is None:
+            bot.send_message(
+                cid,
+                "Usage: /force <goal_index> or inside a **forum topic** goal — runs next step immediately.",
+            )
+            return
+        with _goals_lock:
+            gs = gmap.get(idx)
+            if not gs:
+                bot.send_message(cid, f"Goal #{idx} not found.")
+                return
+            if gs.paused:
+                bot.send_message(cid, f"Goal #{idx} is paused. Use /unpause first.")
+                return
+            gs.force_next = True
+            gs.wake.set()
+            _save_goals(ws)
+        bot.send_message(cid, f"Goal #{idx}: forcing next step.")
+        _log(f"goal #{idx} force_next (workspace {ws})")
 
     @bot.message_handler(commands=["goal"])
     def handle_goal(message):
@@ -3132,29 +3955,79 @@ def run_bot():
         if not _is_owner(uid):
             _reject(message)
             return
+        cid = message.chat.id
+        gmap, ws = _goals_map_for_chat(cid)
         text = (message.text or "").split(None, 1)
         if len(text) < 2 or not text[1].strip():
-            bot.send_message(message.chat.id, "Usage: /goal <your goal text>")
+            bot.send_message(cid, "Usage: /goal <your goal text>")
             return
         goal_text = text[1].strip()
-        msg = bot.send_message(message.chat.id, "Creating goal...")
+        if ws:
+            _ensure_tg_workspace_meta(cid, message.chat.title)
+        send_kw: dict[str, Any] = {}
+        th0 = _forum_reply_thread(message)
+        if th0 is not None:
+            send_kw["message_thread_id"] = th0
+        msg = bot.send_message(cid, "Creating goal...", **send_kw)
         summary = _summarize_goal(goal_text)
+        new_idx: int | None = None
+        body = goal_text
+        if ws and getattr(message.chat, "is_forum", False):
+            topic_line = goal_text.split("\n", 1)[0].strip()[:128] or (
+                summary[:128] if summary else "goal"
+            )
+            try:
+                topic = bot.create_forum_topic(cid, topic_line)
+                tid = getattr(topic, "message_thread_id", None)
+                if tid is None and isinstance(topic, dict):
+                    tid = topic.get("message_thread_id")
+                if tid is not None:
+                    new_idx = int(tid)
+                    body = (
+                        goal_text.split("\n", 1)[1].strip()
+                        if "\n" in goal_text
+                        else goal_text
+                    )
+            except Exception as exc:
+                _log(f"create_forum_topic failed: {str(exc)[:160]}")
         with _goals_lock:
-            idx = max(_goals.keys(), default=0) + 1
+            if new_idx is not None:
+                idx = new_idx
+            else:
+                idx = max(gmap.keys(), default=0) + 1
             gs = GoalState(index=idx, summary=summary)
-            _goals[idx] = gs
-            gdir = _goal_dir(idx)
+            gmap[idx] = gs
+            gdir = _goal_dir(idx, ws)
             gdir.mkdir(parents=True, exist_ok=True)
-            _goal_file(idx).write_text(goal_text)
-            _state_file(idx).write_text("")
-            _inbox_file(idx).write_text("")
-            _goal_runs_dir(idx).mkdir(parents=True, exist_ok=True)
-            _save_goals()
-        bot.edit_message_text(
-            f"Goal #{idx} created: {summary}\nUse /start {idx} to begin.",
-            message.chat.id, msg.message_id,
+            _goal_file(idx, ws).write_text(body)
+            _state_file(idx, ws).write_text("")
+            _inbox_file(idx, ws).write_text("")
+            _goal_runs_dir(idx, ws).mkdir(parents=True, exist_ok=True)
+            if ws:
+                gs.started = True
+                gs.paused = False
+                gs.wake.set()
+            _save_goals(ws)
+        detail = (
+            f"Goal #{idx} created: {summary}\n"
+            + (
+                "**Loop started** (Discord-style). Commands: /pause /unpause /force /delay"
+                if ws
+                else f"Use /start {idx} to begin."
+            )
+            + (f"\n(Forum topic id {idx}.)" if new_idx else "")
         )
-        _log(f"goal #{idx} created ({len(goal_text)} chars): {summary}")
+        bot.edit_message_text(detail, cid, msg.message_id)
+        if new_idx is not None:
+            try:
+                bot.send_message(
+                    cid,
+                    f"Goal #{idx} — {summary}\n/start {idx}",
+                    message_thread_id=new_idx,
+                )
+            except Exception as exc:
+                _log(f"post forum topic follow-up failed: {str(exc)[:120]}")
+        _log(f"goal #{idx} created ({len(goal_text)} chars, ws={ws}): {summary}")
 
     @bot.message_handler(commands=["delete"])
     def handle_delete(message):
@@ -3162,34 +4035,36 @@ def run_bot():
         if not _is_owner(uid):
             _reject(message)
             return
+        cid = message.chat.id
+        gmap, ws = _goals_map_for_chat(cid)
         args = (message.text or "").split()
         if len(args) < 2:
-            bot.send_message(message.chat.id, "Usage: /delete <goal_index>")
+            bot.send_message(cid, "Usage: /delete <goal_index>")
             return
         try:
             idx = int(args[1])
         except ValueError:
-            bot.send_message(message.chat.id, "Usage: /delete <goal_index>")
+            bot.send_message(cid, "Usage: /delete <goal_index>")
             return
         with _goals_lock:
-            gs = _goals.get(idx)
+            gs = gmap.get(idx)
             if not gs:
-                bot.send_message(message.chat.id, f"Goal #{idx} not found.")
+                bot.send_message(cid, f"Goal #{idx} not found.")
                 return
             gs.stop_event.set()
             gs.wake.set()
             gs.started = False
             thread = gs.thread
-            del _goals[idx]
-            _save_goals()
+            del gmap[idx]
+            _save_goals(ws)
         if thread and thread.is_alive():
             thread.join(timeout=5)
         import shutil
-        gdir = _goal_dir(idx)
+        gdir = _goal_dir(idx, ws)
         if gdir.exists():
             shutil.rmtree(gdir, ignore_errors=True)
-        bot.send_message(message.chat.id, f"Goal #{idx} deleted.")
-        _log(f"goal #{idx} deleted via /delete")
+        bot.send_message(cid, f"Goal #{idx} deleted.")
+        _log(f"goal #{idx} deleted via /delete (workspace {ws})")
 
     @bot.message_handler(commands=["clear"])
     def handle_clear(message):
@@ -3198,6 +4073,25 @@ def run_bot():
             _reject(message)
             return
         import shutil
+        cid = message.chat.id
+        gmap, ws = _goals_map_for_chat(cid)
+        if ws:
+            with _goals_lock:
+                for gs in gmap.values():
+                    gs.stop_event.set()
+                    gs.wake.set()
+                gmap.clear()
+                _save_goals(ws)
+            d = WORKSPACES_DIR / str(ws)
+            if d.exists():
+                shutil.rmtree(d, ignore_errors=True)
+            _ensure_tg_workspace_meta(cid, message.chat.title)
+            bot.send_message(
+                cid,
+                f"Cleared Telegram workspace `{ws}` (`context/workspace/{ws}/`).\nReady for a fresh /goal.",
+            )
+            _log(f"cleared workspace {ws} via /clear")
+            return
         with _goals_lock:
             for gs in _goals.values():
                 gs.stop_event.set()
@@ -3228,7 +4122,8 @@ def run_bot():
             pass
         CONTEXT_DIR.mkdir(parents=True, exist_ok=True)
         summary = ", ".join(removed) if removed else "nothing to clear"
-        bot.send_message(message.chat.id, f"Cleared: {summary}\nReady for a fresh /goal.")
+        WORKSPACES_DIR.mkdir(parents=True, exist_ok=True)
+        bot.send_message(cid, f"Cleared: {summary}\nReady for a fresh /goal.")
         _log(f"cleared via /clear command: {summary}")
 
     @bot.message_handler(commands=["model"])
@@ -3237,18 +4132,46 @@ def run_bot():
         if not _is_owner(uid):
             _reject(message)
             return
+        cid = message.chat.id
         parts = message.text.split(maxsplit=1)
         provider = _active_provider()
         model = _active_model()
+        gmap, ws = _goals_map_for_chat(cid)
         if len(parts) < 2 or not parts[1].strip():
+            extra = ""
+            if ws:
+                wm = _read_workspace_model(ws)
+                extra = f"\nWorkspace model override: `{wm or '(default)'}`"
             bot.send_message(
-                message.chat.id,
-                f"Current: `{provider}/{model}`\n\nUsage: `/model <model_name>`\n"
-                f"Run `agent --list-models` or check provider docs for valid names.",
+                cid,
+                f"Current: `{provider}/{model}`{extra}\n\n"
+                "Usage: `/model <model_name>`\n"
+                "In a **workspace** supergroup (`TELEGRAM_WORKSPACE_GROUP_IDS`), this updates "
+                "`context/workspace/<chat_id>/workspace.json` for goals and ad-hoc runs in that chat only.\n"
+                "Otherwise it queues `context/.env.pending` for restart.",
                 parse_mode="Markdown",
             )
             return
         new_model = parts[1].strip()
+        if ws:
+            _ensure_tg_workspace_meta(cid, message.chat.title)
+            p = _workspace_json_path(ws)
+            meta: dict[str, Any] = {}
+            if p.exists():
+                try:
+                    meta = json.loads(p.read_text())
+                except (json.JSONDecodeError, OSError):
+                    meta = {}
+            meta["model"] = new_model
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(meta, indent=2))
+            bot.send_message(
+                cid,
+                f"Workspace model set to `{new_model}` (this supergroup only).",
+                parse_mode="Markdown",
+            )
+            _log(f"/model: workspace {ws} -> {new_model}")
+            return
         key = {
             "cursor": "CURSOR_MODEL",
             "codex": "CODEX_MODEL",
@@ -3259,17 +4182,243 @@ def run_bot():
         with open(pending, "a") as f:
             f.write(f"{key}='{new_model}'\n")
         bot.send_message(
-            message.chat.id,
+            cid,
             f"Model queued: `{key}={new_model}`\nWill apply on next restart.",
             parse_mode="Markdown",
         )
         _log(f"/model: queued {key}={new_model}")
+
+    @bot.message_handler(commands=["env"])
+    def handle_env(message):
+        uid = message.from_user.id if message.from_user else None
+        if not _is_owner(uid):
+            _reject(message)
+            return
+        cid = message.chat.id
+        raw = (message.text or "").strip()
+        rest = raw.split(maxsplit=1)[1].strip() if len(raw.split(maxsplit=1)) > 1 else ""
+
+        if not rest:
+            keys = _list_env_keys_arbos()
+            listing = "\n".join(f"• `{k}`" for k in sorted(keys)) if keys else "(none)"
+            body = f"**Environment keys** (values not shown):\n{listing}"
+            if uid is not None:
+                try:
+                    bot.send_message(uid, body[:4000], parse_mode="Markdown")
+                    bot.send_message(cid, "Key list sent in **your** private chat with the bot.", parse_mode="Markdown")
+                    return
+                except Exception:
+                    pass
+            bot.send_message(cid, body[:4000], parse_mode="Markdown")
+            return
+
+        toks = rest.split(maxsplit=1)
+        head = toks[0]
+        if head == "-d":
+            if len(toks) < 2:
+                bot.send_message(cid, "Usage: `/env -d KEY`", parse_mode="Markdown")
+                return
+            del_key = toks[1].strip().split()[0]
+            try:
+                _delete_env_key_arbos(del_key)
+                _reload_env_secrets()
+            except Exception as exc:
+                bot.send_message(cid, f"Delete failed: {str(exc)[:200]}")
+                return
+            bot.send_message(cid, f"Deleted `{del_key}` from env.")
+            _log(f"/env deleted {del_key}")
+            return
+
+        if len(toks) < 2:
+            bot.send_message(cid, "Usage: `/env KEY VALUE` or `/env` or `/env -d KEY`", parse_mode="Markdown")
+            return
+        e_key, e_val = toks[0], toks[1]
+        env_path = WORKING_DIR / ".env"
+        try:
+            if env_path.exists():
+                lines = env_path.read_text().splitlines()
+                updated = False
+                for i, line in enumerate(lines):
+                    stripped = line.split("#")[0].strip()
+                    if stripped.startswith(f"{e_key}="):
+                        lines[i] = f"{e_key}='{e_val}'"
+                        updated = True
+                        break
+                if not updated:
+                    lines.append(f"{e_key}='{e_val}'")
+                env_path.write_text("\n".join(lines).rstrip() + "\n")
+            elif ENV_ENC_FILE.exists():
+                _save_to_encrypted_env(e_key, e_val)
+            else:
+                env_path.write_text(f"{e_key}='{e_val}'\n")
+            os.environ[e_key] = e_val
+            _reload_env_secrets()
+        except Exception as exc:
+            bot.send_message(cid, f"Failed: {str(exc)[:200]}")
+            _log(f"/env set failed: {exc!s}"[:200])
+            return
+        bot.send_message(cid, f"Set `{e_key}` (restart if a running process must pick it up).", parse_mode="Markdown")
+        _log(f"/env set {e_key}")
+
+    @bot.message_handler(commands=["bash"])
+    def handle_bash(message):
+        uid = message.from_user.id if message.from_user else None
+        if not _is_owner(uid):
+            _reject(message)
+            return
+        cid = message.chat.id
+        parts = message.text.split(maxsplit=1)
+        if len(parts) < 2 or not parts[1].strip():
+            bot.send_message(cid, "Usage: `/bash <shell command>`")
+            return
+        command = parts[1].strip()
+        _, ws = _goals_map_for_chat(cid)
+        bash_cwd = (WORKSPACES_DIR / str(ws)) if ws else WORKING_DIR
+        bash_cwd.mkdir(parents=True, exist_ok=True)
+
+        msg = bot.send_message(cid, "Running…")
+
+        def _run():
+            try:
+                r = subprocess.run(
+                    command, shell=True, cwd=str(bash_cwd),
+                    capture_output=True, text=True, timeout=120,
+                )
+                out = (r.stdout or "").strip()
+                err = (r.stderr or "").strip()
+                bits = []
+                if out:
+                    bits.append(out)
+                if err:
+                    bits.append("stderr:\n" + err)
+                body = "\n".join(bits) if bits else "(no output)"
+                body = _redact_secrets(body)[:3500]
+                header = f"$ `{command[:200]}` rc={r.returncode}\n"
+                try:
+                    bot.edit_message_text(header + f"```\n{body}\n```", cid, msg.message_id, parse_mode="Markdown")
+                except Exception:
+                    bot.edit_message_text(header + body[:3800], cid, msg.message_id)
+            except subprocess.TimeoutExpired:
+                bot.edit_message_text("(command timed out after 120s)", cid, msg.message_id)
+            except Exception as exc:
+                bot.edit_message_text(f"Error: {str(exc)[:500]}", cid, msg.message_id)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    @bot.message_handler(commands=["help"])
+    def handle_help(message):
+        uid = message.from_user.id if message.from_user else None
+        if not _is_owner(uid):
+            _reject(message)
+            return
+        cid = message.chat.id
+        gmap, _ = _goals_map_for_chat(cid)
+        tid = getattr(message, "message_thread_id", None)
+        in_goal = bool(tid and int(tid) in gmap)
+        if in_goal:
+            txt = (
+                "**Goal topic (forum)**\n"
+                "• `/pause` / `/unpause` / `/force` — or pass goal id from General\n"
+                "• `/delay <id> <delay>` — seconds or `2m` / `5min`\n"
+                "• `/delete <id>` · `/model` · `/status`\n"
+                "• `/help`"
+            )
+        else:
+            txt = (
+                "**Operator**\n"
+                "• `/goal` — workspace: **auto-starts** loop (forum: new topic)\n"
+                "• `/start` / `/stop` / `/ls` / `/clear` / `/restart` / `/update`\n"
+                "• `/bash` — shell in workspace dir (or repo root if not a workspace chat)\n"
+                "• `/env` — list (DM) / set / `-d` delete\n"
+                "• `/model` — per-workspace or `.env.pending`\n"
+                "• Public/workspace groups: **members** → `/arbos` … ; you → normal message or `/arbos` (reply = quote context)"
+            )
+        bot.send_message(cid, txt, parse_mode="Markdown")
+
+    @bot.message_handler(commands=["arbos"])
+    def handle_arbos(message):
+        uid = message.from_user.id if message.from_user else None
+        cid = message.chat.id
+        if uid is None or not _telegram_member_arbos_chat(cid):
+            return
+        rest = _strip_arbos_leading_command(message.text or "")
+        if rest is None:
+            return
+        tw_kw: dict[str, Any] = {}
+        th = _forum_reply_thread(message)
+        if th is not None:
+            tw_kw["message_thread_id"] = th
+        if not rest.strip():
+            bot.send_message(
+                cid,
+                "Utilisation : `/arbos` suivre de votre question.\n"
+                "Voix / image / fichier : joindre une **légende** qui commence par `/arbos …`.",
+                parse_mode="Markdown",
+                **tw_kw,
+            )
+            return
+        _save_chat_id(cid)
+        rid = cid if cid < 0 else None
+        u = message.from_user
+        who = f"@{u.username}" if u.username else (u.first_name or str(uid))
+        tag = "public" if _is_public_qa_chat(cid) else "group"
+        log_chat(
+            "user",
+            f"[{tag} /arbos {who}] {rest}"[:1500],
+            telegram_user_id=uid,
+            telegram_shared_room_id=rid,
+        )
+        tw = cid if cid in workspace_group_ids else 0
+        if _is_owner(uid):
+            topic_g = _active_topic_goal_key(message, cid)
+            prompt = _build_operator_prompt(
+                _telegram_reply_prefix(message) + rest,
+                telegram_workspace_id=tw,
+                active_topic_goal=topic_g,
+                arbos_reply_french=True,
+                telegram_user_id=uid,
+                telegram_room_id=rid,
+            )
+        else:
+            prompt = _build_public_bittensor_prompt(
+                rest,
+                who,
+                message.chat.title,
+                telegram_user_id=uid,
+                telegram_room_id=rid,
+            )
+
+        def _run():
+            response = run_agent_streaming(
+                bot,
+                prompt,
+                cid,
+                message_thread_id=th,
+                workspace_id=tw,
+                telegram_log_user_id=uid,
+                telegram_log_room_id=rid,
+            )
+            log_chat(
+                "bot",
+                response[:1000],
+                telegram_user_id=uid,
+                telegram_shared_room_id=rid,
+            )
+            _process_pending_env()
+
+        threading.Thread(target=_run, daemon=True).start()
 
     @bot.message_handler(commands=["restart"])
     def handle_restart(message):
         uid = message.from_user.id if message.from_user else None
         if not _is_owner(uid):
             _reject(message)
+            return
+        if getattr(message.chat, "is_forum", False) and getattr(message, "message_thread_id", None):
+            bot.send_message(
+                message.chat.id,
+                "Use /restart in the **main** forum chat, not inside a topic.",
+            )
             return
         bot.send_message(message.chat.id, "Restarting — killing agent and exiting for pm2...")
         _log("restart requested via /restart command")
@@ -3305,8 +4454,17 @@ def run_bot():
     @bot.message_handler(content_types=["voice", "audio"])
     def handle_voice(message):
         uid = message.from_user.id if message.from_user else None
-        allow_public = uid is not None and _is_public_qa_chat(message.chat.id)
-        if not _is_owner(uid) and not allow_public:
+        cid0 = message.chat.id
+        cap0 = message.caption or ""
+        arbos_x = _strip_arbos_leading_command(cap0)
+        gated0 = _telegram_member_arbos_chat(cid0)
+        if _is_owner(uid):
+            pass
+        elif uid is not None and gated0 and arbos_x is not None:
+            pass
+        elif gated0:
+            return
+        else:
             _reject(message)
             return
         _save_chat_id(message.chat.id)
@@ -3328,19 +4486,56 @@ def run_bot():
         caption = message.caption or ""
         user_text = f"[Voice note transcription]: {transcript}"
         if caption:
-            user_text += f"\n[Caption]: {caption}"
+            if not _is_owner(uid) and arbos_x is not None:
+                if arbos_x.strip():
+                    user_text += f"\n[Caption]: {arbos_x}"
+            else:
+                user_text += f"\n[Caption]: {caption}"
 
-        log_chat("user", user_text[:1000])
+        cid = message.chat.id
+        rid = cid if cid < 0 else None
+        log_chat(
+            "user", user_text[:1000], telegram_user_id=uid, telegram_shared_room_id=rid,
+        )
         if _is_owner(uid):
-            prompt = _build_operator_prompt(user_text)
+            tw = cid if cid in workspace_group_ids else 0
+            topic_g = _active_topic_goal_key(message, cid)
+            prompt = _build_operator_prompt(
+                _telegram_reply_prefix(message) + user_text,
+                telegram_workspace_id=tw,
+                active_topic_goal=topic_g,
+                telegram_user_id=uid,
+                telegram_room_id=rid,
+            )
         else:
             u = message.from_user
             who = f"@{u.username}" if u.username else (u.first_name or str(uid))
-            prompt = _build_public_bittensor_prompt(user_text, who, message.chat.title)
+            prompt = _build_public_bittensor_prompt(
+                user_text,
+                who,
+                message.chat.title,
+                telegram_user_id=uid,
+                telegram_room_id=rid,
+            )
 
         def _run():
-            response = run_agent_streaming(bot, prompt, message.chat.id)
-            log_chat("bot", response[:1000])
+            th = _forum_reply_thread(message)
+            tw_run = cid if cid in workspace_group_ids else 0
+            response = run_agent_streaming(
+                bot,
+                prompt,
+                cid,
+                message_thread_id=th,
+                workspace_id=tw_run,
+                telegram_log_user_id=uid,
+                telegram_log_room_id=rid,
+            )
+            log_chat(
+                "bot",
+                response[:1000],
+                telegram_user_id=uid,
+                telegram_shared_room_id=rid,
+            )
             _process_pending_env()
 
         threading.Thread(target=_run, daemon=True).start()
@@ -3348,10 +4543,20 @@ def run_bot():
     @bot.message_handler(content_types=["document"])
     def handle_document(message):
         uid = message.from_user.id if message.from_user else None
-        if not _is_owner(uid):
+        cid = message.chat.id
+        cap0 = message.caption or ""
+        arbos_x = _strip_arbos_leading_command(cap0)
+        gated0 = _telegram_member_arbos_chat(cid)
+        if _is_owner(uid):
+            pass
+        elif uid is not None and gated0 and arbos_x is not None:
+            pass
+        elif gated0:
+            return
+        else:
             _reject(message)
             return
-        _save_chat_id(message.chat.id)
+        _save_chat_id(cid)
 
         doc = message.document
         filename = doc.file_name or f"file_{doc.file_id[:8]}"
@@ -3361,7 +4566,11 @@ def run_bot():
         size_kb = doc.file_size / 1024 if doc.file_size else saved_path.stat().st_size / 1024
         user_text = f"[Sent file: {saved_path.name}] saved to {saved_path} ({size_kb:.1f} KB)"
         if caption:
-            user_text += f"\n[Caption]: {caption}"
+            if not _is_owner(uid) and arbos_x is not None:
+                if arbos_x.strip():
+                    user_text += f"\n[Caption]: {arbos_x}"
+            else:
+                user_text += f"\n[Caption]: {caption}"
 
         is_text = False
         try:
@@ -3375,12 +4584,45 @@ def run_bot():
         if not is_text:
             user_text += "\n(Binary file — not included inline. Read it from the saved path if needed.)"
 
-        log_chat("user", user_text[:1000])
-        prompt = _build_operator_prompt(user_text)
+        rid = cid if cid < 0 else None
+        log_chat(
+            "user", user_text[:1000], telegram_user_id=uid, telegram_shared_room_id=rid,
+        )
+        tw = cid if cid in workspace_group_ids else 0
+        if _is_owner(uid):
+            topic_g = _active_topic_goal_key(message, cid)
+            prompt = _build_operator_prompt(
+                _telegram_reply_prefix(message) + user_text,
+                telegram_workspace_id=tw,
+                active_topic_goal=topic_g,
+                telegram_user_id=uid,
+                telegram_room_id=rid,
+            )
+        else:
+            u = message.from_user
+            who = f"@{u.username}" if u.username else (u.first_name or str(uid))
+            prompt = _build_public_bittensor_prompt(
+                user_text,
+                who,
+                message.chat.title,
+                telegram_user_id=uid,
+                telegram_room_id=rid,
+            )
 
         def _run():
-            response = run_agent_streaming(bot, prompt, message.chat.id)
-            log_chat("bot", response[:1000])
+            response = run_agent_streaming(
+                bot, prompt, cid,
+                message_thread_id=_forum_reply_thread(message),
+                workspace_id=tw,
+                telegram_log_user_id=uid,
+                telegram_log_room_id=rid,
+            )
+            log_chat(
+                "bot",
+                response[:1000],
+                telegram_user_id=uid,
+                telegram_shared_room_id=rid,
+            )
             _process_pending_env()
 
         threading.Thread(target=_run, daemon=True).start()
@@ -3388,10 +4630,20 @@ def run_bot():
     @bot.message_handler(content_types=["photo"])
     def handle_photo(message):
         uid = message.from_user.id if message.from_user else None
-        if not _is_owner(uid):
+        cid = message.chat.id
+        cap0 = message.caption or ""
+        arbos_x = _strip_arbos_leading_command(cap0)
+        gated0 = _telegram_member_arbos_chat(cid)
+        if _is_owner(uid):
+            pass
+        elif uid is not None and gated0 and arbos_x is not None:
+            pass
+        elif gated0:
+            return
+        else:
             _reject(message)
             return
-        _save_chat_id(message.chat.id)
+        _save_chat_id(cid)
 
         photo = message.photo[-1]  # highest resolution
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -3401,14 +4653,51 @@ def run_bot():
         caption = message.caption or ""
         user_text = f"[Sent photo: {saved_path.name}] saved to {saved_path}"
         if caption:
-            user_text += f"\n[Caption]: {caption}"
+            if not _is_owner(uid) and arbos_x is not None:
+                if arbos_x.strip():
+                    user_text += f"\n[Caption]: {arbos_x}"
+            else:
+                user_text += f"\n[Caption]: {caption}"
 
-        log_chat("user", user_text[:1000])
-        prompt = _build_operator_prompt(user_text)
+        rid = cid if cid < 0 else None
+        log_chat(
+            "user", user_text[:1000], telegram_user_id=uid, telegram_shared_room_id=rid,
+        )
+        tw = cid if cid in workspace_group_ids else 0
+        if _is_owner(uid):
+            topic_g = _active_topic_goal_key(message, cid)
+            prompt = _build_operator_prompt(
+                _telegram_reply_prefix(message) + user_text,
+                telegram_workspace_id=tw,
+                active_topic_goal=topic_g,
+                telegram_user_id=uid,
+                telegram_room_id=rid,
+            )
+        else:
+            u = message.from_user
+            who = f"@{u.username}" if u.username else (u.first_name or str(uid))
+            prompt = _build_public_bittensor_prompt(
+                user_text,
+                who,
+                message.chat.title,
+                telegram_user_id=uid,
+                telegram_room_id=rid,
+            )
 
         def _run():
-            response = run_agent_streaming(bot, prompt, message.chat.id)
-            log_chat("bot", response[:1000])
+            response = run_agent_streaming(
+                bot, prompt, cid,
+                message_thread_id=_forum_reply_thread(message),
+                workspace_id=tw,
+                telegram_log_user_id=uid,
+                telegram_log_room_id=rid,
+            )
+            log_chat(
+                "bot",
+                response[:1000],
+                telegram_user_id=uid,
+                telegram_shared_room_id=rid,
+            )
             _process_pending_env()
 
         threading.Thread(target=_run, daemon=True).start()
@@ -3422,10 +4711,17 @@ def run_bot():
         text = message.text.strip()
 
         if text.startswith("/"):
-            if _is_public_qa_chat(cid) and not _is_owner(uid):
+            if _telegram_member_arbos_chat(cid) and not _is_owner(uid):
+                th0 = _forum_reply_thread(message)
+                kw0: dict[str, Any] = {}
+                if th0 is not None:
+                    kw0["message_thread_id"] = th0
                 bot.send_message(
                     cid,
-                    "Commands are for the bot owner only. Ask a Bittensor question as a normal message.",
+                    "Les commandes `/…` sont pour les opérateurs. "
+                    "Pour une question : `/arbos` puis votre texte.",
+                    parse_mode="Markdown",
+                    **kw0,
                 )
                 return
             if not _is_owner(uid):
@@ -3433,36 +4729,50 @@ def run_bot():
                 return
             bot.send_message(
                 cid,
-                "Unknown command. Owner: use /start for goal commands ( /goal /ls /status / … ).",
+                "Unknown command. Owner: `/help` lists all commands.",
+                parse_mode="Markdown",
             )
             return
 
         if _is_owner(uid):
+            # In workspace groups, plain text without /arbos is ignored.
+            if cid in workspace_group_ids:
+                return
             _save_chat_id(cid)
-            log_chat("user", text)
-            prompt = _build_operator_prompt(text)
+            rid = cid if cid < 0 else None
+            log_chat(
+                "user", text, telegram_user_id=uid, telegram_shared_room_id=rid,
+            )
+            tw = 0
+            topic_g = _active_topic_goal_key(message, cid)
+            prompt = _build_operator_prompt(
+                _telegram_reply_prefix(message) + text,
+                telegram_workspace_id=tw,
+                active_topic_goal=topic_g,
+                telegram_user_id=uid,
+                telegram_room_id=rid,
+            )
 
             def _run_owner():
-                response = run_agent_streaming(bot, prompt, cid)
-                log_chat("bot", response[:1000])
+                response = run_agent_streaming(
+                    bot, prompt, cid,
+                    message_thread_id=_forum_reply_thread(message),
+                    workspace_id=tw,
+                    telegram_log_user_id=uid,
+                    telegram_log_room_id=rid,
+                )
+                log_chat(
+                    "bot",
+                    response[:1000],
+                    telegram_user_id=uid,
+                    telegram_shared_room_id=rid,
+                )
                 _process_pending_env()
 
             threading.Thread(target=_run_owner, daemon=True).start()
             return
 
-        if _is_public_qa_chat(cid) and uid is not None:
-            _save_chat_id(cid)
-            u = message.from_user
-            who = f"@{u.username}" if u.username else (u.first_name or str(uid))
-            log_chat("user", f"[public {who}] {text}"[:1500])
-            prompt = _build_public_bittensor_prompt(text, who, message.chat.title)
-
-            def _run_public():
-                response = run_agent_streaming(bot, prompt, cid)
-                log_chat("bot", response[:1000])
-                _process_pending_env()
-
-            threading.Thread(target=_run_public, daemon=True).start()
+        if uid is not None and _telegram_member_arbos_chat(cid):
             return
 
         _reject(message)
@@ -3652,10 +4962,17 @@ def main() -> None:
     _reload_env_secrets()
     CONTEXT_DIR.mkdir(parents=True, exist_ok=True)
     GOALS_DIR.mkdir(parents=True, exist_ok=True)
+    WORKSPACES_DIR.mkdir(parents=True, exist_ok=True)
 
     _load_goals()
     _ensure_telegram_qa_fixed_goal()
-    _log(f"loaded {len(_goals)} goal(s) from goals.json")
+    if not _goals_background_autorun_default():
+        _stop_all_ralph_goal_autorun()
+        _log(
+            "Ralph goals idle until /start <n> "
+            "(GOALS_BACKGROUND_AUTORUN default off when Telegram group IDs are set)",
+        )
+    _log(f"loaded {_total_registered_goals()} goal(s) (legacy + Telegram workspaces)")
 
     if FALLBACK_PROVIDER == "opencode":
         _log(f"fallback configured: opencode/{FALLBACK_MODEL}")
@@ -3696,7 +5013,9 @@ def main() -> None:
 
     _write_claude_settings()
 
-    _send_telegram_text("Restarted.")
+    _ping = os.environ.get("TELEGRAM_RESTART_PING", "true").strip().lower()
+    if _ping not in ("0", "false", "no") and os.getenv("TAU_BOT_TOKEN"):
+        _send_telegram_text("Restarted.")
 
     threading.Thread(target=_goal_manager, daemon=True).start()
     threading.Thread(target=run_bot, daemon=True).start()

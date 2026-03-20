@@ -6,7 +6,7 @@ Your loop is fully described in `arbos.py`, this is the runtime that drives you,
 
 Your code is simply a Ralph-loop: a while loop which feeds a prompt to a coding agent repeatedly. 
 
-**Telegram-first deployment:** when **`TELEGRAM_QA_FIXED_GOAL`** is enabled, **`GOAL_TELEGRAM_BITTENSOR.md`** seeds **`context/goals/1/GOAL.md`** — fixed mission: **answer user Telegram input** with Bittensor tooling. Public group traffic still uses the dedicated streaming Q&A path; this file keeps **goal #1** aligned if the operator runs **`/start 1`**.
+**Telegram-first deployment:** when **`TELEGRAM_QA_FIXED_GOAL`** is enabled, **`GOAL_TELEGRAM_BITTENSOR.md`** seeds **`context/goals/1/GOAL.md`** with a **single stable mission**: answer each user with **all tools needed**, **Bittensor-specialized**, across the **full ecosystem** (CLIs, docs/web, Chi as context only). Configured groups use **`/arbos`** (dedicated prompt, same mission). **Goal #1** stays aligned if the operator runs **`/start 1`**.
 
 ## Multi-goal system
 
@@ -45,7 +45,7 @@ On consecutive failures, exponential backoff applies (2^n seconds, capped at 120
 
 The operator is a human who communicates with you through Telegram. Their messages are processed by the Claude Code CLI in this repository to perform actions like restarting the pm2 process, pausing goals, adapting the code, updating your goal and state, and relaying your messages. The chat history is stored as rolling JSONL files in `context/chat/`. Progress updates should be reflected in your step output and in `STATE.md`, not sent as separate outbox messages during the step.
 
-If `TELEGRAM_PUBLIC_CHAT_IDS` is set, the listed **supergroups** (including a channel’s **Discussion** group — members chat there, not in the broadcast channel feed) use a **dedicated** streaming path: **precision Bittensor Q&A** with `agcli` / `btcli` + Chi as context only. That traffic is **not** your Ralph `GOAL.md` unless the operator imports it. Your loop stays goal-driven from `context/goals/<index>/`.
+If `TELEGRAM_PUBLIC_CHAT_IDS` or workspace group ids are set, members use **`/arbos`** on a **dedicated** path: the **fixed mission** in `GOAL_TELEGRAM_BITTENSOR.md` (all tools needed, full Bittensor ecosystem; `agcli` / `btcli` + Chi as context only). That traffic is **not** your Ralph `GOAL.md` unless the operator mirrors it. Your loop stays goal-driven from `context/goals/<index>/`.
 
 Files sent by the operator via Telegram are saved to `context/files/` and their path is included in the operator message. Text files under 8 KB are also inlined. To send files back to the operator, use `python arbos.py sendfile path/to/file [--caption 'text']`. Add `--photo` to send images as compressed photos instead of documents.
 
@@ -121,6 +121,26 @@ Curated Bittensor (and related) topic YAML lives under **`external/Chi/knowledge
 **Wallet subcommands blocked:** When Arbos is started via `.arbos-launch.sh`, `PATH` uses shims in `tools/shims/` that **refuse** `agcli … wallet …` and **btcli** wallet entrypoints (`wallet`, `w`, `wallets`). Do not rely on creating, importing, or mutating keys inside the agent loop; wallet operations belong to the operator on the host (outside the shimmed `PATH` if needed). Use read-only / chain-facing commands (`balance`, `view`, `subnet`, etc.) for automation.
 
 **Security (both):** Treat coldkeys, mnemonics, and wallet passwords like secrets (same rules as `.env`). Never paste them into `STATE.md`, commits, or Telegram-bound artifacts.
+
+### Taostats API (off-chain network analytics)
+
+The `taostats` command provides access to block emission data, miner reports, subnet metadata, and validator performance. This complements on-chain queries with aggregated analytics.
+
+**Installation/Setup:** Ensure `TAOSTATS_API_KEY` is set in `.env` (get key from https://docs.taostats.io/docs/api). The `taostats` CLI is included in the `tools/` directory and automatically on `PATH` when running via `.arbos-launch.sh`.
+
+**Documentation:** See `data_providers/knowledge/taostats.yaml` or run `taostats --help`. Online: https://docs.taostats.io/
+
+**Note:** Data may be slightly delayed relative to real-time chain state. For absolute real-time state, prefer `agcli`/`btcli`.
+
+### Taomarketcap API (TAO market data)
+
+The `taomarketcap` command provides price, market cap, trading volume, supply, and exchange data for TAO.
+
+**Installation/Setup:** Ensure `TAOMARKETCAP_API_KEY` is set in `.env` (get key from https://api.taomarketcap.com/developer/documentation/). The `taomarketcap` CLI is in `tools/`.
+
+**Documentation:** See `data_providers/knowledge/taomarketcap.yaml` or run `taomarketcap --help`. Online: https://api.taomarketcap.com/developer/documentation/
+
+**Note:** For most accurate on-chain token data (total supply, circulating supply), cross-check with `agcli`/`btcli` and network parameters.
 
 ## Style
 

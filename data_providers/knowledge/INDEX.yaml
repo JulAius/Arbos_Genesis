@@ -1,0 +1,33 @@
+# Arbos Bittensor Data Providers Knowledge Base
+# Entry point for external data sources beyond on-chain queries
+
+purpose: |
+  Structured reference for Taostats and Taomarketcap APIs, complementing
+  agcli/btcli with off-chain network statistics, market data, and analytics.
+
+files_by_category:
+  data_providers:
+    taostats.yaml: "Block emission, miner reports, subnet metadata"
+    taomarketcap.yaml: "Market data: price, volume, supply, exchanges"
+
+task_routing:
+  bittensor_network_stats:
+    load:
+      - taostats.yaml
+
+  market_data:
+    load:
+      - taomarketcap.yaml
+
+  combined_analysis:
+    load:
+      - taostats.yaml
+      - taomarketcap.yaml
+
+critical_doctrines:
+  - "Prefer on-chain data via agcli/btcli when available for absolute accuracy"
+  - "Use Taostats for aggregated analytics and time-series queries"
+  - "Use Taomarketcap for price, volume, and exchange data"
+  - "Always respect rate limits; batch or script heavy queries"
+  - "Validate API keys are set in .env before running commands"
+  - "ISO 8601 timestamps are required for time range queries"

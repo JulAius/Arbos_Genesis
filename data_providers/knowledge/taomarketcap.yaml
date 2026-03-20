@@ -1,0 +1,231 @@
+# TaoMarketCap (TMC) API Reference
+# Tested and verified 2026-03-20
+
+base_url: "https://api.taomarketcap.com"
+auth: "Authorization: <key>   # plain key, no 'Bearer' prefix"
+output: "All commands output JSON to stdout"
+openapi: "https://api.taomarketcap.com/api/public-oas3.json?format=json"
+docs: "https://api.taomarketcap.com/developer/documentation/"
+env_var: "TAOMARKETCAP_API_KEY"
+
+# IMPORTANT: all endpoints are under /public/v1/...
+# Auth: Authorization: <key>  (no Bearer!)
+
+commands:
+
+  market: |
+    taomarketcap market
+    Current TAO market snapshot — price, supply, market cap in one call.
+    Fields: current_price, usd_quote.{price, volume_24h, market_cap,
+            percent_change_1h/24h/7d/30d/60d/90d, fully_diluted_market_cap,
+            market_cap_dominance}, circulating_supply, max_supply,
+            network_lock_cost, block_number, ai_market_dominance.
+
+    Example:
+      taomarketcap market
+      taomarketcap market | jq '{price: .current_price, mcap: .usd_quote.market_cap, change_24h: .usd_quote.percent_change_24h}'
+
+  candles: |
+    taomarketcap candles [--limit N] [--offset N]
+    OHLCV candlestick data. Default limit=100.
+    Fields per item: timestamp, open, high, low, close.
+
+    Example:
+      taomarketcap candles --limit 24   # last 24 candles
+
+  chart: |
+    taomarketcap chart [--limit N] [--offset N]
+    Price chart series data. Returns {series, min, max}.
+
+  subnets: |
+    taomarketcap subnets [--netuid N] [--limit N] [--offset N]
+    Subnet list with pagination. Returns {count, next, previous, results}.
+
+  subnet-detail: |
+    taomarketcap subnet-detail <id>
+    Specific subnet detail.
+    Fields: id, netuid, created_at_block, registered_at, is_active,
+            is_subsidized, mechanism_count, latest_snapshot_id.
+
+    Example:
+      taomarketcap subnet-detail 1
+
+  subnets-info: |
+    taomarketcap subnets-info
+    Network-level subnet stats.
+    Fields: total_networks, network_rate_limit, network_lock_cost,
+            sum_of_sn_burns, sum_of_sn_prices, network_lock_cost_preview.
+
+  subnet-tokenomics: |
+    taomarketcap subnet-tokenomics
+    Recycled TAO amounts (24h_rao_recycled_for_registration, etc.)
+
+  validators: |
+    taomarketcap validators [--hotkey K] [--subnet N] [--apy-gte F] [--apy-lte F]
+    Full validator list (returns full list, not paginated).
+    Fields per item: subnet, hotkey, coldkey, apy, validator_fee,
+                     tao_alpha_staked, total_alpha_staked.
+
+    Examples:
+      taomarketcap validators --subnet 1
+      taomarketcap validators | jq 'sort_by(-.apy) | .[:10]'
+      taomarketcap validators --apy-gte 0.15
+
+  validator-detail: |
+    taomarketcap validator-detail <hotkey>
+    Specific validator detail.
+
+    Example:
+      taomarketcap validator-detail 5F4tQyWrhfGVcNhoqeiNsR6KjD4wMZ2kfhLj4oHYuyHbZAc3
+
+  validator-stakers: |
+    taomarketcap validator-stakers <hotkey> [--limit N] [--offset N]
+    Stakers table for a validator.
+
+  coldkeys: |
+    taomarketcap coldkeys [--search ADDR] [--subnet N] [--limit N] [--offset N]
+    Coldkey accounts with balances and stake.
+    Returns paginated {count, next, previous, results}.
+
+  coldkey-detail: |
+    taomarketcap coldkey-detail <coldkey>
+    Specific coldkey account detail.
+
+  hotkeys: |
+    taomarketcap hotkeys [--address A] [--coldkey K] [--subnet N] [--limit N]
+    Hotkey list.
+
+  accounts-info: |
+    taomarketcap accounts-info
+    Aggregate stats: total_accounts, new_accounts_24h, existential_deposit.
+
+  blocks: |
+    taomarketcap blocks [--height N] [--limit N] [--offset N]
+    Blocks from the chain.
+
+  staking-activity: |
+    taomarketcap staking-activity [--hotkey K] [--coldkey K] [--subnet N] [--function F] [--limit N] [--offset N]
+    All staking extrinsics (addStake, removeStake, moveStake, etc.)
+    Useful for monitoring a wallet's staking moves.
+
+    Example:
+      taomarketcap staking-activity --coldkey 5GrwvaEF... --limit 20
+
+  stakes-added: |
+    taomarketcap stakes-added [--hotkey K] [--subnet N] [--limit N]
+    Stake-add transactions.
+
+  stakes-removed: |
+    taomarketcap stakes-removed [--hotkey K] [--subnet N] [--limit N]
+    Stake-remove transactions.
+
+  stakes-moved: |
+    taomarketcap stakes-moved [--origin-hotkey K] [--dest-hotkey K] [--subnet-from N] [--subnet-to N] [--limit N]
+    Stake-move transactions between subnets.
+
+  transfers: |
+    taomarketcap transfers [--coldkey K] [--from-coldkey K] [--to-coldkey K] [--subnet N] [--limit N]
+    TAO transfer transactions.
+
+    Example:
+      taomarketcap transfers --from-coldkey 5GrwvaEF... --limit 10
+
+  analytics-chain: |
+    taomarketcap analytics-chain [--span SPAN]
+    Chain-level analytics time series.
+    span: 1h | 1d | 7d | 30d | 1y | all
+    Fields per item: ts, block_number, trading_volume_1h,
+                     trading_volume_cumulative, total_chain_buys, etc.
+
+    Examples:
+      taomarketcap analytics-chain --span 7d
+      taomarketcap analytics-chain --span 30d | jq '.[-1]'   # latest point
+
+  analytics-subnet: |
+    taomarketcap analytics-subnet <netuid> [--span SPAN]
+    Subnet-level analytics time series.
+
+    Example:
+      taomarketcap analytics-subnet 1 --span 7d
+
+  trending: |
+    taomarketcap trending
+    All trending data: {analytics_available, data, total_items}
+
+  trending-subnets: |
+    taomarketcap trending-subnets
+    Trending subnets ranked by activity.
+
+  trending-validators: |
+    taomarketcap trending-validators
+    Trending validators.
+
+  tax-report: |
+    taomarketcap tax-report <coldkey> [--from YYYY-MM-DD] [--to YYYY-MM-DD]
+    Tax report for a coldkey address.
+
+  constants: |
+    taomarketcap constants
+    Chain constants: balances, proxy, subtensor_module, swap, spec_version.
+
+  staking-constants: |
+    taomarketcap staking-constants
+    DefaultFeeRate and DefaultMinStake.
+
+  senate: |
+    taomarketcap senate
+    Senate members list + required_stake + required_stake_percentage.
+
+  search: |
+    taomarketcap search <query>
+    Global search across subnets, validators, accounts.
+
+    Example:
+      taomarketcap search "opentensor"
+
+pagination:
+  tmc_response: |
+    Paginated endpoints return: {count, next, previous, results: [...]}
+    Use --limit and --offset.
+    Some endpoints (validators/full, candles, analytics) return lists directly.
+
+workflows:
+  full_market_snapshot: |
+    # Price + supply + network stats in one call
+    taomarketcap market | jq '{
+      price_usd: .current_price,
+      market_cap: .usd_quote.market_cap,
+      volume_24h: .usd_quote.volume_24h,
+      change_24h: .usd_quote.percent_change_24h,
+      circulating_supply: .circulating_supply,
+      network_lock_cost: .network_lock_cost
+    }'
+
+  top_validators_apy: |
+    # Top 10 validators by APY across all subnets
+    taomarketcap validators | jq 'sort_by(-.apy) | .[:10] | .[] | {hotkey, subnet, apy, validator_fee}'
+
+  wallet_activity: |
+    # All staking activity for a coldkey
+    COLDKEY="5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
+    taomarketcap staking-activity --coldkey "$COLDKEY" --limit 50
+    taomarketcap transfers --coldkey "$COLDKEY" --limit 20
+
+  subnet_stats: |
+    # Subnet network overview
+    taomarketcap subnets-info
+    taomarketcap trending-subnets
+    taomarketcap analytics-chain --span 1d | jq '.[-1]'
+
+  price_trend: |
+    # 30-day price candles
+    taomarketcap candles --limit 720 | jq '.[-30:] | .[] | {timestamp, close}'
+
+critical_notes:
+  - "Auth header: 'Authorization: <key>' — NO Bearer prefix (Bearer returns 401)"
+  - "All endpoints are under /public/v1/ path"
+  - "validators endpoint: use /validators/full/ NOT /validators/ (list not allowed on base)"
+  - "market endpoint returns all-in-one: price + supply + market cap in single call"
+  - "analytics span values: 1h, 1d, 7d, 30d, 1y, all"
+  - "Paginated endpoints use limit/offset (not page)"
+  - "candle-data returns 720 items by default (1 per hour for 30 days)"
