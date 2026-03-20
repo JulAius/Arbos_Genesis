@@ -1,0 +1,3 @@
+[submodule "external/Chi"]
+	path = external/Chi
+	url = https://github.com/unconst/Chi.git

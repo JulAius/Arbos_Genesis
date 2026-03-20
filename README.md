@@ -79,6 +79,10 @@ agent login
 # btcli — after venv is created and activated:
 #   pip install -U bittensor-cli && ./tools/check_btcli.sh
 #   (or: pip install -e ".[bittensor]")
+#
+# Chi / Const knowledge YAML (submodule — used by Bittensor prompts)
+#   git submodule update --init external/Chi
+#   Docs tree: https://github.com/unconst/Chi/tree/main/knowledge
 
 git clone https://github.com/JulAius/arbos_genesis.git
 cd arbos_genesis
@@ -125,6 +129,16 @@ Set `TELEGRAM_PUBLIC_CHAT_IDS` in `.env` to one or more numeric chat IDs (comma-
 **Important:** the first **`/start`** to register **`TELEGRAM_OWNER_ID` must be in a private chat** with the bot, not in the group (so no one else can steal owner).
 
 **Media:** photos and documents are accepted for the **owner** only in this mode (reduces spam and arbitrary uploads in public chats).
+
+### Knowledge base ([Chi](https://github.com/unconst/Chi))
+
+Bittensor-focused prompts (operator + public Q&A) reference **`external/Chi/knowledge/`** — structured YAML from **[unconst/Chi/knowledge](https://github.com/unconst/Chi/tree/main/knowledge)**. After clone, run:
+
+```sh
+git submodule update --init external/Chi
+```
+
+Agents are instructed to read **`INDEX.yaml`** then topic files with the Read tool when answering protocol questions.
 
 ## How it works
 

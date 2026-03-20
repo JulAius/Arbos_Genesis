@@ -2531,9 +2531,36 @@ def _build_operator_prompt(user_text: str) -> str:
     context = _recent_context(max_chars=4000)
     if context:
         parts.append(f"## Recent activity\n{context}")
+    parts.append(_chi_knowledge_section(compact=True))
     parts.append(f"## Operator message\n{user_text}")
 
     return "\n\n".join(parts)
+
+
+def _chi_knowledge_section(*, compact: bool) -> str:
+    """Point agents at unconst/Chi YAML knowledge (git submodule under external/Chi)."""
+    kdir = WORKING_DIR / "external" / "Chi" / "knowledge"
+    rel = "external/Chi/knowledge"
+    url = "https://github.com/unconst/Chi/tree/main/knowledge"
+    if not kdir.is_dir():
+        return (
+            "## Chi knowledge base\n"
+            f"Not on disk (`{rel}/`). Initialize: `git submodule update --init external/Chi` "
+            f"— sources: [{url}]({url}).\n\n"
+        )
+    if compact:
+        return (
+            "## Chi knowledge base\n"
+            f"Bittensor topic YAML lives in **`{rel}/`** ([Chi/knowledge]({url})). "
+            "For protocol/subnet/miner/validator questions, **Read** relevant `.yaml` files "
+            f"(start with `{rel}/INDEX.yaml`).\n\n"
+        )
+    return (
+        "## Curated knowledge ([Chi](https://github.com/unconst/Chi))\n"
+        f"Structured YAML packs under **`{rel}/`** are the preferred reference for this deployment. "
+        "Before long answers, consult **`INDEX.yaml`** to pick files, then **Read** those topics. "
+        "Combine with `agcli` / `btcli` (read-only) or WebSearch when the chain or repo changed after the YAML.\n\n"
+    )
 
 
 def _telegram_public_chat_ids_from_env() -> set[int]:
@@ -2554,6 +2581,7 @@ def _telegram_public_chat_ids_from_env() -> set[int]:
 def _build_public_bittensor_prompt(user_text: str, user_label: str, chat_title: str | None) -> str:
     """Prompt for open group / channel Q&A (Bittensor + Const-style persona)."""
     room = chat_title or "this chat"
+    chi = _chi_knowledge_section(compact=False)
     return (
         f"You are the **public Bittensor helper** in the Telegram chat « {room} ».\n\n"
         "## Persona (Const-style)\n"
@@ -2566,6 +2594,7 @@ def _build_public_bittensor_prompt(user_text: str, user_label: str, chat_title: 
         f"A member (**{user_label}**) asked something. Answer helpfully, **focused on Bittensor** "
         "(OpenTensor stack, TAO, chain mechanics, operations). If the question is off-topic, give a "
         "short reply and steer toward Bittensor.\n\n"
+        f"{chi}"
         "## Language\n"
         "Match the user's language when practical (e.g. French in → French out).\n\n"
         "## Tools\n"
