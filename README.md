@@ -25,6 +25,7 @@ Arbos loops a `GOAL.md` through a coding agent, step after step, with no memory 
 | Main or Fallback | **Anthropic** | `claude-sonnet-4-6` | `claude login` |
 | Main or Fallback | **OpenRouter** | `stepfun/step-3.5-flash:free` | API key |
 | Main or Fallback | **OpenCode** | `minimax-m2.5-free` | API key |
+| Main or Fallback | **Cursor** | `composer-2-fast` | `agent login` |
 | Main or Fallback | **Chutes** | `moonshotai/Kimi-K2.5-TEE` | API key |
 
 Arbos lets you choose both:
@@ -32,13 +33,14 @@ Arbos lets you choose both:
 - the main provider with `PROVIDER=...`
 - the fallback provider with `FALLBACK_PROVIDER=...`
 
-Supported values are `codex`, `anthropic`, `openrouter`, `opencode`, and `chutes`.
+Supported values are `codex`, `anthropic`, `openrouter`, `opencode`, `cursor`, and `chutes`.
 
 ## Requirements
 
 - [Codex CLI](https://developers.openai.com/codex/) if you use `codex` as main or fallback provider
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) if you use `anthropic` as main or fallback provider
 - [OpenCode CLI](https://opencode.ai) if you use `opencode` as main or fallback provider
+- [Cursor](https://cursor.com) (installed and logged in) if you use `cursor` as main or fallback provider
 - [Telegram Bot token](https://core.telegram.org/bots#how-do-i-create-a-bot)
 - API keys if you use `openrouter`, `opencode`, or `chutes`
 - Python 3.10+, `pm2`
@@ -60,6 +62,12 @@ claude login
 
 # Install OpenCode CLI (optional if using PROVIDER=opencode or FALLBACK_PROVIDER=opencode)
 curl -fsSL https://opencode.ai/install | bash
+
+# Install Cursor Agent CLI (optional if using PROVIDER=cursor or FALLBACK_PROVIDER=cursor)
+curl https://cursor.com/install -fsS | bash
+# Then authenticate once (browser login):
+agent login
+# Or use CURSOR_API_KEY in .env for key-based auth
 
 git clone https://github.com/JulAius/arbos_genesis.git
 cd arbos_genesis
@@ -132,6 +140,7 @@ Other valid combinations:
 - `PROVIDER=anthropic` with `FALLBACK_PROVIDER=openrouter`
 - `PROVIDER=codex` with `FALLBACK_PROVIDER=codex`
 - `PROVIDER=opencode` with `FALLBACK_PROVIDER=codex`
+- `PROVIDER=cursor` with `FALLBACK_PROVIDER=openrouter`
 - `PROVIDER=chutes` with `FALLBACK_PROVIDER=opencode`
 
 ## Auto-push

@@ -169,6 +169,17 @@ else
     command_exists claude || die "'claude' command not found — install via: npm i -g @anthropic-ai/claude-code"
 fi
 
+# Cursor Agent CLI (optional — only required when PROVIDER=cursor)
+if command_exists agent; then
+    ok "Cursor Agent CLI already installed"
+else
+    run "Installing Cursor Agent CLI" bash -c "curl https://cursor.com/install -fsS | bash"
+    export PATH="$HOME/.local/bin:$PATH"
+    if ! command_exists agent; then
+        ok "Cursor Agent CLI not installed — set PROVIDER=cursor only if you have Cursor installed"
+    fi
+fi
+
 # PATH persistence
 SHELL_RC="$HOME/.bashrc"
 [[ -n "${ZSH_VERSION:-}" ]] && SHELL_RC="$HOME/.zshrc"
@@ -213,11 +224,13 @@ if grep -q "^PROVIDER=" "$INSTALL_DIR/.env" 2>/dev/null; then
 elif [ "$HAS_TTY" = true ]; then
     printf "  ${DIM}Pick your inference backend:${NC}\n\n"
     printf "    ${BOLD}1)${NC} Chutes     ${DIM}— cheap multi-model pool via chutes.ai${NC}\n"
-    printf "    ${BOLD}2)${NC} OpenRouter  ${DIM}— Claude Opus 4.6 via openrouter.ai${NC}\n\n"
+    printf "    ${BOLD}2)${NC} OpenRouter  ${DIM}— Claude Opus 4.6 via openrouter.ai${NC}\n"
+    printf "    ${BOLD}3)${NC} Cursor     ${DIM}— Cursor CLI (requires Cursor subscription)${NC}\n\n"
     printf "  ${CYAN}Choice [1]:${NC} "
     read -r _choice </dev/tty 2>/dev/null || _choice=""
     case "$_choice" in
         2) PROVIDER="openrouter" ;;
+        3) PROVIDER="cursor" ;;
         *) PROVIDER="chutes" ;;
     esac
     echo "PROVIDER=$PROVIDER" >> "$INSTALL_DIR/.env"
@@ -278,6 +291,8 @@ if [ "$PROVIDER" = "openrouter" ]; then
         "OpenRouter API key" \
         "Get yours at: https://openrouter.ai/keys" \
         "required"
+elif [ "$PROVIDER" = "cursor" ]; then
+    ok "Cursor uses built-in auth — no API key required"
 else
     ask_key "CHUTES_API_KEY" \
         "Chutes API key" \

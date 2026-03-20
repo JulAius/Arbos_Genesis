@@ -255,6 +255,14 @@ elif PROVIDER == "opencode":
     COST_PER_M_OUTPUT = float(os.environ.get("COST_PER_M_OUTPUT", "0"))
     CHUTES_ROUTING_AGENT = CLAUDE_MODEL
     CHUTES_ROUTING_BOT = CLAUDE_MODEL
+elif PROVIDER == "cursor":
+    CLAUDE_MODEL = os.environ.get("CURSOR_MODEL", os.environ.get("CLAUDE_MODEL", "composer-2-fast"))
+    LLM_API_KEY = os.environ.get("CURSOR_API_KEY", "")
+    LLM_BASE_URL = ""
+    COST_PER_M_INPUT = float(os.environ.get("COST_PER_M_INPUT", "0"))
+    COST_PER_M_OUTPUT = float(os.environ.get("COST_PER_M_OUTPUT", "0"))
+    CHUTES_ROUTING_AGENT = CLAUDE_MODEL
+    CHUTES_ROUTING_BOT = CLAUDE_MODEL
 else:
     CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "moonshotai/Kimi-K2.5-TEE")
     CHUTES_BASE_URL = os.environ.get("CHUTES_BASE_URL", "https://llm.chutes.ai/v1")
@@ -1334,6 +1342,25 @@ def _check_codex_login(label: str = "codex") -> None:
     else:
         _log(f"WARNING: {label} auth missing — run `codex login` or `codex login --device-auth`")
 
+
+def _check_cursor_login() -> None:
+    try:
+        status = subprocess.run(
+            ["agent", "status"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except Exception as exc:
+        _log(f"WARNING: cursor agent not found: {str(exc)[:120]}")
+        return
+
+    if status.returncode == 0:
+        info = (status.stdout or status.stderr).strip()
+        _log(f"cursor agent: {info[:80]}")
+    else:
+        _log("WARNING: cursor agent not authenticated — run `agent login`")
+
 def _claude_cmd(prompt: str, extra_flags: list[str] | None = None) -> list[str]:
     cmd = ["claude", "-p", prompt]
     if not IS_ROOT:
@@ -1354,6 +1381,22 @@ def _codex_cmd(prompt: str, model: str | None = None) -> list[str]:
         "--skip-git-repo-check",
         prompt,
     ]
+
+
+def _cursor_cmd(prompt: str) -> list[str]:
+    cmd = [
+        "agent",
+        "--print",
+        "--yolo",
+        "--trust",
+        "--output-format", "stream-json",
+        "--workspace", str(WORKING_DIR),
+    ]
+    model = _active_model()
+    if model:
+        cmd.extend(["--model", model])
+    cmd.append(prompt)
+    return cmd
 
 
 def _extract_prompt(cmd: list[str]) -> str:
@@ -1543,6 +1586,105 @@ def _run_claude_once(cmd, env, on_text=None, on_activity=None):
             result_text = complete_texts[-1]
         elif streaming_tokens:
             result_text = "".join(streaming_tokens)
+
+    if timed_out:
+        stderr_output = "(timed out)"
+    else:
+        stderr_output = proc.stderr.read() if proc.stderr else ""
+
+    returncode = proc.wait()
+    with _child_procs_lock:
+        _child_procs.discard(proc)
+    return returncode, result_text, raw_lines, stderr_output
+
+
+# ── Cursor runner ────────────────────────────────────────────────────────────
+
+def _run_cursor_once(cmd, env, on_text=None, on_activity=None):
+    """Run a single cursor agent subprocess, return (returncode, result_text, raw_lines, stderr).
+
+    Parses Cursor's stream-json format:
+      type=assistant  → accumulate text from message.content[].text
+      type=tool_call  → fire on_activity
+      type=result     → final result text + token usage
+    """
+    proc = subprocess.Popen(
+        cmd, cwd=WORKING_DIR, env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, bufsize=1,
+    )
+    with _child_procs_lock:
+        _child_procs.add(proc)
+
+    result_text = ""
+    accumulated_text = ""
+    raw_lines: list[str] = []
+    timed_out = False
+    last_activity = time.monotonic()
+
+    sel = selectors.DefaultSelector()
+    sel.register(proc.stdout, selectors.EVENT_READ)
+
+    try:
+        while True:
+            ready = sel.select(timeout=min(CLAUDE_TIMEOUT, 30))
+            if not ready:
+                if time.monotonic() - last_activity > CLAUDE_TIMEOUT:
+                    _log(f"cursor timeout: no output for {CLAUDE_TIMEOUT}s, killing pid={proc.pid}")
+                    proc.kill()
+                    timed_out = True
+                    break
+                if proc.poll() is not None:
+                    break
+                continue
+            line = proc.stdout.readline()
+            if not line:
+                break
+            last_activity = time.monotonic()
+            raw_lines.append(line)
+            try:
+                evt = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            etype = evt.get("type", "")
+
+            if etype == "assistant":
+                content = evt.get("message", {}).get("content", [])
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        accumulated_text += part.get("text", "")
+                if on_text and accumulated_text:
+                    on_text(accumulated_text)
+
+            elif etype == "tool_call":
+                if on_activity and evt.get("subtype") == "started":
+                    tool_call = evt.get("tool_call", {})
+                    desc = ""
+                    for v in tool_call.values():
+                        if isinstance(v, dict):
+                            desc = (v.get("description") or
+                                    v.get("args", {}).get("command", "") or
+                                    str(v)[:80])
+                            break
+                    if desc:
+                        on_activity(str(desc)[:80])
+
+            elif etype == "result":
+                result_text = evt.get("result", accumulated_text)
+                usage = evt.get("usage", {})
+                if usage:
+                    with _token_lock:
+                        _token_usage["input"] += usage.get("inputTokens", 0)
+                        _token_usage["output"] += usage.get("outputTokens", 0)
+
+    finally:
+        sel.unregister(proc.stdout)
+        sel.close()
+
+    if not result_text:
+        result_text = accumulated_text
 
     if timed_out:
         stderr_output = "(timed out)"
@@ -1763,6 +1905,7 @@ def run_agent(cmd: list[str], phase: str, output_file: Path,
             active_provider = _active_provider()
             use_opencode = active_provider == "opencode"
             use_codex = active_provider == "codex"
+            use_cursor = active_provider == "cursor"
 
             if use_opencode:
                 prompt_text = _extract_prompt(cmd)
@@ -1786,6 +1929,15 @@ def run_agent(cmd: list[str], phase: str, output_file: Path,
                 env.pop("TAU_BOT_TOKEN", None)
                 env["PYTHONUNBUFFERED"] = "1"
                 engine = "codex"
+            elif use_cursor:
+                prompt_text = _extract_prompt(cmd)
+                active_cmd = _cursor_cmd(prompt_text)
+                env = os.environ.copy()
+                env.pop("TAU_BOT_TOKEN", None)
+                env["PYTHONUNBUFFERED"] = "1"
+                if LLM_API_KEY:
+                    env["CURSOR_API_KEY"] = LLM_API_KEY
+                engine = "cursor"
             else:
                 prompt_text = ""
                 active_cmd = cmd
@@ -1801,6 +1953,10 @@ def run_agent(cmd: list[str], phase: str, output_file: Path,
                 )
             elif use_codex:
                 returncode, result_text, raw_lines, stderr_output = _run_codex_once(
+                    active_cmd, env, on_text=on_text, on_activity=on_activity,
+                )
+            elif use_cursor:
+                returncode, result_text, raw_lines, stderr_output = _run_cursor_once(
                     active_cmd, env, on_text=on_text, on_activity=on_activity,
                 )
             else:
@@ -2186,7 +2342,7 @@ def _summarize_goal(text: str) -> str:
             url = f"{LLM_BASE_URL}/v1/chat/completions"
             headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
             model = CLAUDE_MODEL
-        elif PROVIDER == "opencode":
+        elif PROVIDER in ("opencode", "cursor"):
             raise RuntimeError(f"goal summarization via {PROVIDER} CLI is not supported")
         else:
             url = f"{CHUTES_BASE_URL}/chat/completions"
@@ -2382,6 +2538,8 @@ def run_agent_streaming(bot, prompt: str, chat_id: int) -> str:
         cmd = _codex_cmd(prompt)
     elif active_provider == "opencode":
         cmd = _opencode_cmd()
+    elif active_provider == "cursor":
+        cmd = _cursor_cmd(prompt)
     else:
         cmd = _claude_cmd(prompt, extra_flags=["--model", "bot"])
 
@@ -2432,6 +2590,12 @@ def run_agent_streaming(bot, prompt: str, chat_id: int) -> str:
                 "autoupdate": os.environ.get("OPENCODE_AUTOUPDATE", "false").lower() == "true",
                 "snapshot": os.environ.get("OPENCODE_SNAPSHOT", "false").lower() == "true",
             })
+        elif active_provider == "cursor":
+            env = os.environ.copy()
+            env.pop("TAU_BOT_TOKEN", None)
+            env["PYTHONUNBUFFERED"] = "1"
+            if LLM_API_KEY:
+                env["CURSOR_API_KEY"] = LLM_API_KEY
         else:
             env = _claude_env()
 
@@ -2447,6 +2611,10 @@ def run_agent_streaming(bot, prompt: str, chat_id: int) -> str:
             elif active_provider == "opencode":
                 returncode, result_text, raw_lines, stderr_output = _run_opencode_once(
                     cmd, env, on_text=_on_text, on_activity=_on_activity, prompt=prompt,
+                )
+            elif active_provider == "cursor":
+                returncode, result_text, raw_lines, stderr_output = _run_cursor_once(
+                    cmd, env, on_text=_on_text, on_activity=_on_activity,
                 )
             else:
                 returncode, result_text, raw_lines, stderr_output = _run_claude_once(
@@ -3108,6 +3276,8 @@ def main() -> None:
 
     if PROVIDER == "codex":
         _check_codex_login("primary codex")
+    elif PROVIDER == "cursor":
+        _check_cursor_login()
     elif PROVIDER == "openrouter" and not LLM_API_KEY:
         _log("WARNING: OPENROUTER_API_KEY not set — OpenRouter calls will fail")
     elif PROVIDER == "opencode" and not LLM_API_KEY:
