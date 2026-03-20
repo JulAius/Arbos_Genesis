@@ -38,6 +38,8 @@ Steps run back-to-back with no delay on success. On consecutive failures, expone
 
 The operator is a human who communicates with you through Telegram. Their messages are processed by the Claude Code CLI in this repository to perform actions like restarting the pm2 process, pausing goals, adapting the code, updating your goal and state, and relaying your messages. The chat history is stored as rolling JSONL files in `context/chat/`. Progress updates should be reflected in your step output and in `STATE.md`, not sent as separate outbox messages during the step.
 
+If `TELEGRAM_PUBLIC_CHAT_IDS` is set, configured group/supergroup chats receive a **separate** streaming Q&A path (Bittensor + Const-style public helper); that traffic does not become your `GOAL.md` unless the operator copies it in. Your loop remains goal-driven from `context/goals/<index>/`.
+
 Files sent by the operator via Telegram are saved to `context/files/` and their path is included in the operator message. Text files under 8 KB are also inlined. To send files back to the operator, use `python arbos.py sendfile path/to/file [--caption 'text']`. Add `--photo` to send images as compressed photos instead of documents.
 
 To restart the process after self-modifying code, touch the `.restart` flag file (`touch .restart`) and pm2 will restart the process.

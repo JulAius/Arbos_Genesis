@@ -2536,6 +2536,47 @@ def _build_operator_prompt(user_text: str) -> str:
     return "\n\n".join(parts)
 
 
+def _telegram_public_chat_ids_from_env() -> set[int]:
+    raw = os.environ.get("TELEGRAM_PUBLIC_CHAT_IDS", "").strip()
+    if not raw:
+        return set()
+    out: set[int] = set()
+    for part in raw.replace(" ", "").split(","):
+        if not part:
+            continue
+        try:
+            out.add(int(part))
+        except ValueError:
+            _log(f"TELEGRAM_PUBLIC_CHAT_IDS: skipped invalid entry {part!r}")
+    return out
+
+
+def _build_public_bittensor_prompt(user_text: str, user_label: str, chat_title: str | None) -> str:
+    """Prompt for open group / channel Q&A (Bittensor + Const-style persona)."""
+    room = chat_title or "this chat"
+    return (
+        f"You are the **public Bittensor helper** in the Telegram chat « {room} ».\n\n"
+        "## Persona (Const-style)\n"
+        "Speak with a voice **inspired by Const** (Bittensor-native builder tone: direct, low hype, "
+        "protocol-literate). You are fluent in incentives, subnets, validators, miners, emissions, "
+        "staking, weights, metagraph dynamics, and common tooling (`agcli`, `btcli`). "
+        "Prefer precise terminology and honest uncertainty over marketing. "
+        "This is a **teaching style**, not impersonation of a real individual and not financial advice.\n\n"
+        "## Task\n"
+        f"A member (**{user_label}**) asked something. Answer helpfully, **focused on Bittensor** "
+        "(OpenTensor stack, TAO, chain mechanics, operations). If the question is off-topic, give a "
+        "short reply and steer toward Bittensor.\n\n"
+        "## Language\n"
+        "Match the user's language when practical (e.g. French in → French out).\n\n"
+        "## Tools\n"
+        "You may use Bash with `agcli` / `btcli` when it improves factual answers (read-only queries preferred). "
+        "Wallet create/import subcommands are **blocked** on this host—tell users to manage keys themselves.\n\n"
+        "## Security\n"
+        "Never read or echo `.env`, API keys, mnemonics, or coldkeys.\n\n"
+        f"## Message\n{user_text}"
+    )
+
+
 _TOOL_LABELS = {
     "Bash": "running",
     "Read": "reading",
@@ -2714,7 +2755,9 @@ def run_agent_streaming(bot, prompt: str, chat_id: int) -> str:
     return current_text
 
 
-def _is_owner(user_id: int) -> bool:
+def _is_owner(user_id: int | None) -> bool:
+    if user_id is None:
+        return False
     owner = os.environ.get("TELEGRAM_OWNER_ID", "").strip()
     if not owner:
         return False
@@ -2746,22 +2789,49 @@ def run_bot():
     import telebot
     bot = telebot.TeleBot(token)
 
+    public_chat_ids = _telegram_public_chat_ids_from_env()
+
+    def _is_public_qa_chat(cid: int) -> bool:
+        return cid in public_chat_ids
+
+    if public_chat_ids:
+        _log(f"public Bittensor Q&A chats: {sorted(public_chat_ids)}")
+
     def _save_chat_id(chat_id: int):
         CHAT_ID_FILE.write_text(str(chat_id))
 
     def _reject(message):
         uid = message.from_user.id if message.from_user else None
-        _log(f"rejected message from unauthorized user {uid}")
+        cid = message.chat.id
+        _log(f"rejected message from unauthorized user {uid} chat={cid}")
         if not os.environ.get("TELEGRAM_OWNER_ID", "").strip():
-            bot.send_message(message.chat.id, "Send /start to register as the owner.")
+            bot.send_message(
+                cid,
+                "No owner yet — open a **private chat** with this bot and send /start once.",
+                parse_mode="Markdown",
+            )
+        elif _is_public_qa_chat(cid):
+            bot.send_message(
+                cid,
+                "That command is for the bot owner only. Ask your Bittensor question as a normal message (or voice).",
+            )
         else:
-            bot.send_message(message.chat.id, "Unauthorized.")
+            bot.send_message(cid, "Unauthorized.")
 
     @bot.message_handler(commands=["start"])
     def handle_start(message):
         uid = message.from_user.id if message.from_user else None
+        chat = message.chat
         if not os.environ.get("TELEGRAM_OWNER_ID", "").strip() and uid is not None:
-            _enroll_owner(uid)
+            if getattr(chat, "type", "") == "private":
+                _enroll_owner(uid)
+            else:
+                bot.send_message(
+                    chat.id,
+                    "No owner yet. The first /start must be in **private chat** with this bot.",
+                    parse_mode="Markdown",
+                )
+                return
         if not _is_owner(uid):
             _reject(message)
             return
@@ -3108,7 +3178,8 @@ def run_bot():
     @bot.message_handler(content_types=["voice", "audio"])
     def handle_voice(message):
         uid = message.from_user.id if message.from_user else None
-        if not _is_owner(uid):
+        allow_public = uid is not None and _is_public_qa_chat(message.chat.id)
+        if not _is_owner(uid) and not allow_public:
             _reject(message)
             return
         _save_chat_id(message.chat.id)
@@ -3133,7 +3204,12 @@ def run_bot():
             user_text += f"\n[Caption]: {caption}"
 
         log_chat("user", user_text[:1000])
-        prompt = _build_operator_prompt(user_text)
+        if _is_owner(uid):
+            prompt = _build_operator_prompt(user_text)
+        else:
+            u = message.from_user
+            who = f"@{u.username}" if u.username else (u.first_name or str(uid))
+            prompt = _build_public_bittensor_prompt(user_text, who, message.chat.title)
 
         def _run():
             response = run_agent_streaming(bot, prompt, message.chat.id)
@@ -3212,20 +3288,57 @@ def run_bot():
 
     @bot.message_handler(func=lambda m: True)
     def handle_message(message):
-        uid = message.from_user.id if message.from_user else None
-        if not _is_owner(uid):
-            _reject(message)
+        if message.content_type != "text" or not (message.text or "").strip():
             return
-        _save_chat_id(message.chat.id)
-        log_chat("user", message.text)
-        prompt = _build_operator_prompt(message.text)
+        uid = message.from_user.id if message.from_user else None
+        cid = message.chat.id
+        text = message.text.strip()
 
-        def _run():
-            response = run_agent_streaming(bot, prompt, message.chat.id)
-            log_chat("bot", response[:1000])
-            _process_pending_env()
+        if text.startswith("/"):
+            if _is_public_qa_chat(cid) and not _is_owner(uid):
+                bot.send_message(
+                    cid,
+                    "Commands are for the bot owner only. Ask a Bittensor question as a normal message.",
+                )
+                return
+            if not _is_owner(uid):
+                _reject(message)
+                return
+            bot.send_message(
+                cid,
+                "Unknown command. Owner: use /start for goal commands ( /goal /ls /status / … ).",
+            )
+            return
 
-        threading.Thread(target=_run, daemon=True).start()
+        if _is_owner(uid):
+            _save_chat_id(cid)
+            log_chat("user", text)
+            prompt = _build_operator_prompt(text)
+
+            def _run_owner():
+                response = run_agent_streaming(bot, prompt, cid)
+                log_chat("bot", response[:1000])
+                _process_pending_env()
+
+            threading.Thread(target=_run_owner, daemon=True).start()
+            return
+
+        if _is_public_qa_chat(cid) and uid is not None:
+            _save_chat_id(cid)
+            u = message.from_user
+            who = f"@{u.username}" if u.username else (u.first_name or str(uid))
+            log_chat("user", f"[public {who}] {text}"[:1500])
+            prompt = _build_public_bittensor_prompt(text, who, message.chat.title)
+
+            def _run_public():
+                response = run_agent_streaming(bot, prompt, cid)
+                log_chat("bot", response[:1000])
+                _process_pending_env()
+
+            threading.Thread(target=_run_public, daemon=True).start()
+            return
+
+        _reject(message)
 
     _log("telegram bot started")
     while True:

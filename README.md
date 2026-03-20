@@ -112,6 +112,20 @@ Build a trading system that predicts BTC direction on a 15-minute horizon.
 | `/update` | Git pull and restart |
 | `/clear` | Reset context and state |
 
+### Public Bittensor Q&A (group / supergroup)
+
+Set `TELEGRAM_PUBLIC_CHAT_IDS` in `.env` to one or more numeric chat IDs (comma-separated, e.g. `-1001234567890`). In those chats, **any member** can ask questions in **plain text** or **voice**; the bot replies using a **Bittensor-focused** prompt with a **Const-style** builder voice (teaching tone, not impersonation). Slash **commands** stay **owner-only**.
+
+1. Prefer a **supergroup**, or a channel’s **discussion** group if comments are there.
+2. Add the bot with permission to read messages.
+3. In [@BotFather](https://t.me/BotFather), use **`/setprivacy`** → **Disable** so the bot sees ordinary group messages.
+4. Obtain the chat id (e.g. `@RawDataBot`, or the Bot API `getUpdates` after a test message).
+5. Put `TELEGRAM_PUBLIC_CHAT_IDS=-100...` in `.env` and restart.
+
+**Important:** the first **`/start`** to register **`TELEGRAM_OWNER_ID` must be in a private chat** with the bot, not in the group (so no one else can steal owner).
+
+**Media:** photos and documents are accepted for the **owner** only in this mode (reduces spam and arbitrary uploads in public chats).
+
 ## How it works
 
 1. Each **step** is a single agent CLI invocation with full tool access
@@ -142,6 +156,7 @@ OPENCODE_API_KEY=...
 
 TAU_BOT_TOKEN=...
 TELEGRAM_OWNER_ID=...
+# TELEGRAM_PUBLIC_CHAT_IDS=-100...
 AUTO_PUSH=true
 GITHUB_TOKEN=ghp_...
 ```
