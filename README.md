@@ -47,6 +47,8 @@ Supported values are `codex`, `anthropic`, `openrouter`, `opencode`, `cursor`, a
 - **[agcli](https://github.com/unconst/agcli)** (optional, recommended on the `bittensor` branch): Rust 1.75+ and `cargo install --git https://github.com/unconst/agcli` — Rust Bittensor CLI + SDK. `.arbos-launch.sh` prepends `~/.cargo/bin` to `PATH`.
 - **[btcli](https://github.com/opentensor/btcli)** (optional, recommended on the `bittensor` branch): official Python CLI (`pip install -U bittensor-cli`, or `pip install -e ".[bittensor]"` here). With `.arbos-launch.sh`, the project `.venv` is activated first, so installing **`bittensor-cli` inside `.venv`** puts `btcli` on the agent’s `PATH` under pm2.
 
+**Wallet lockdown:** `.arbos-launch.sh` prefixes `tools/shims/` to `PATH` so **`agcli`’s `wallet` subcommand** and **btcli’s `wallet` / `w` / `wallets`** are rejected (exit 2). Full binaries remain at `~/.cargo/bin/agcli` and `.venv/bin/btcli` if you invoke them directly from a shell without the shims first.
+
 ## Getting started
 
 ```sh
