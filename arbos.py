@@ -630,6 +630,7 @@ def _send_telegram_new(text: str, *, target: tuple[str, str] | None = None) -> i
             timeout=15,
         )
         response.raise_for_status()
+        log_chat("bot", text[:1000])
         return response.json().get("result", {}).get("message_id")
     except Exception as exc:
         _log(f"telegram send failed: {str(exc)[:120]}")
@@ -644,13 +645,19 @@ def _edit_telegram_text(message_id: int, text: str, *, target: tuple[str, str] |
     token, chat_id = target
     text = _redact_secrets(text)
     try:
-        requests.post(
+        resp = requests.post(
             f"https://api.telegram.org/bot{token}/editMessageText",
             json={"chat_id": chat_id, "message_id": message_id, "text": text[:4000]},
             timeout=15,
         )
+        if not resp.ok:
+            desc = (resp.json() if resp.content else {}).get("description", "")
+            if "message is not modified" not in desc:
+                _log(f"telegram edit failed: {resp.status_code} {desc[:80]}")
+            return "message is not modified" in desc
         return True
-    except Exception:
+    except Exception as exc:
+        _log(f"telegram edit failed: {str(exc)[:120]}")
         return False
 
 
@@ -1179,6 +1186,10 @@ async def _proxy_messages(request: Request):
                     headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
                 )
             except httpx.TimeoutException:
+                try:
+                    await client.aclose()
+                except Exception:
+                    pass
                 last_error_msg = f"timed out after {PROXY_TIMEOUT}s"
                 _log(f"proxy: {last_error_msg} (attempt {attempt}/{PROXY_MAX_RETRIES})")
                 if attempt < PROXY_MAX_RETRIES:
@@ -1190,6 +1201,10 @@ async def _proxy_messages(request: Request):
                     },
                 })
             except Exception as exc:
+                try:
+                    await client.aclose()
+                except Exception:
+                    pass
                 last_error_msg = str(exc)[:300]
                 _log(f"proxy: error (attempt {attempt}/{PROXY_MAX_RETRIES}): {last_error_msg}")
                 if attempt < PROXY_MAX_RETRIES:
@@ -2463,6 +2478,7 @@ def _recent_context(max_chars: int = 6000) -> str:
 def _build_operator_prompt(user_text: str) -> str:
     """Build prompt for the CLI agent to handle any operator request."""
     chatlog = load_chatlog(max_chars=4000)
+    _model_env_key = {"cursor": "CURSOR_MODEL", "codex": "CODEX_MODEL", "opencode": "OPENCODE_MODEL"}.get(_active_provider(), "CLAUDE_MODEL")
 
     parts = [
         "You are the operator interface for Arbos, a coding agent running in a loop via pm2.\n"
@@ -2471,7 +2487,7 @@ def _build_operator_prompt(user_text: str) -> str:
         "When the operator asks a question, answer from the available context.\n\n"
         f"## Runtime\n\nActive provider: `{_active_provider()}`, model: `{_active_model()}`\n"
         "To change the model at runtime, write `KEY='value'` to `context/.env.pending` "
-        f"(current key: `{'CURSOR_MODEL' if _active_provider() == 'cursor' else 'CLAUDE_MODEL'}`).\n\n"
+        f"(current key: `{_model_env_key}`).\n\n"
         "## Security\n\n"
         "NEVER read, output, or reveal the contents of `.env`, `.env.enc`, or any secret/key/token values.\n"
         "Do not include API keys, passwords, seed phrases, or credentials in any response.\n"
@@ -2575,19 +2591,6 @@ def _format_tool_activity(tool_name: str, tool_input: dict) -> str:
 
 def run_agent_streaming(bot, prompt: str, chat_id: int) -> str:
     """Run Claude Code CLI and stream output into a Telegram message."""
-    active_provider = _active_provider()
-
-    if active_provider in ("openrouter", "anthropic"):
-        cmd = _claude_cmd(prompt)
-    elif active_provider == "codex":
-        cmd = _codex_cmd(prompt)
-    elif active_provider == "opencode":
-        cmd = _opencode_cmd()
-    elif active_provider == "cursor":
-        cmd = _cursor_cmd(prompt)
-    else:
-        cmd = _claude_cmd(prompt, extra_flags=["--model", "bot"])
-
     msg = bot.send_message(chat_id, "thinking...")
     current_text = ""
     activity_status = ""
@@ -2621,53 +2624,69 @@ def run_agent_streaming(bot, prompt: str, chat_id: int) -> str:
 
     _claude_semaphore.acquire()
     try:
-        if active_provider == "codex":
-            env = os.environ.copy()
-            env.pop("TAU_BOT_TOKEN", None)
-            env["PYTHONUNBUFFERED"] = "1"
-        elif active_provider == "opencode":
-            env = os.environ.copy()
-            env.pop("TAU_BOT_TOKEN", None)
-            env["PYTHONUNBUFFERED"] = "1"
-            env["OPENCODE_CONFIG_CONTENT"] = json.dumps({
-                "model": f"opencode/{_active_model()}",
-                "small_model": f"opencode/{_active_model()}",
-                "autoupdate": os.environ.get("OPENCODE_AUTOUPDATE", "false").lower() == "true",
-                "snapshot": os.environ.get("OPENCODE_SNAPSHOT", "false").lower() == "true",
-            })
-        elif active_provider == "cursor":
-            env = os.environ.copy()
-            env.pop("TAU_BOT_TOKEN", None)
-            env["PYTHONUNBUFFERED"] = "1"
-            if LLM_API_KEY:
-                env["CURSOR_API_KEY"] = LLM_API_KEY
-        else:
-            env = _claude_env()
-
         for attempt in range(1, MAX_RETRIES + 1):
             current_text = ""
             activity_status = ""
             last_edit = 0.0
 
+            active_provider = _active_provider()
+
+            if active_provider == "codex":
+                active_cmd = _codex_cmd(prompt)
+                env = os.environ.copy()
+                env.pop("TAU_BOT_TOKEN", None)
+                env["PYTHONUNBUFFERED"] = "1"
+            elif active_provider == "opencode":
+                active_cmd = _opencode_cmd()
+                env = os.environ.copy()
+                env.pop("TAU_BOT_TOKEN", None)
+                env["PYTHONUNBUFFERED"] = "1"
+                env["OPENCODE_CONFIG_CONTENT"] = json.dumps({
+                    "model": f"opencode/{_active_model()}",
+                    "small_model": f"opencode/{_active_model()}",
+                    "autoupdate": os.environ.get("OPENCODE_AUTOUPDATE", "false").lower() == "true",
+                    "snapshot": os.environ.get("OPENCODE_SNAPSHOT", "false").lower() == "true",
+                })
+            elif active_provider == "cursor":
+                active_cmd = _cursor_cmd(prompt)
+                env = os.environ.copy()
+                env.pop("TAU_BOT_TOKEN", None)
+                env["PYTHONUNBUFFERED"] = "1"
+                if LLM_API_KEY:
+                    env["CURSOR_API_KEY"] = LLM_API_KEY
+            elif active_provider in ("openrouter", "anthropic"):
+                active_cmd = _claude_cmd(prompt)
+                env = _claude_env()
+            else:
+                active_cmd = _claude_cmd(prompt, extra_flags=["--model", "bot"])
+                env = _claude_env()
+
             if active_provider == "codex":
                 returncode, result_text, raw_lines, stderr_output = _run_codex_once(
-                    cmd, env, on_text=_on_text, on_activity=_on_activity,
+                    active_cmd, env, on_text=_on_text, on_activity=_on_activity,
                 )
             elif active_provider == "opencode":
                 returncode, result_text, raw_lines, stderr_output = _run_opencode_once(
-                    cmd, env, on_text=_on_text, on_activity=_on_activity, prompt=prompt,
+                    active_cmd, env, on_text=_on_text, on_activity=_on_activity, prompt=prompt,
                 )
             elif active_provider == "cursor":
                 returncode, result_text, raw_lines, stderr_output = _run_cursor_once(
-                    cmd, env, on_text=_on_text, on_activity=_on_activity,
+                    active_cmd, env, on_text=_on_text, on_activity=_on_activity,
                 )
             else:
                 returncode, result_text, raw_lines, stderr_output = _run_claude_once(
-                    cmd, env, on_text=_on_text, on_activity=_on_activity,
+                    active_cmd, env, on_text=_on_text, on_activity=_on_activity,
                 )
             if result_text.strip():
                 current_text = result_text
                 break
+
+            combined_err = f"{stderr_output} {result_text}"
+            if returncode != 0 and _is_quota_error(combined_err) and not _using_fallback:
+                _log("streaming: quota/rate-limit detected, switching to fallback")
+                _switch_to_fallback()
+                _edit("Quota limit — switching to fallback, retrying...", force=True)
+                continue
 
             if returncode != 0 and attempt < MAX_RETRIES:
                 delay = min(2 ** attempt, 30)
@@ -3257,6 +3276,28 @@ def _kill_stale_claude_procs():
         pass
 
 
+def _kill_stale_codex_procs():
+    """Kill any leftover codex processes from a previous arbos instance."""
+    my_pid = os.getpid()
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "codex exec"], capture_output=True, text=True, timeout=5,
+        )
+        for line in result.stdout.strip().splitlines():
+            pid = int(line.strip())
+            if pid == my_pid:
+                continue
+            try:
+                os.kill(pid, signal.SIGKILL)
+                _log(f"killed stale codex orphan pid={pid}")
+            except ProcessLookupError:
+                pass
+            except PermissionError:
+                pass
+    except Exception:
+        pass
+
+
 def _kill_stale_agent_procs():
     """Kill any leftover cursor agent processes from a previous arbos instance.
 
@@ -3364,6 +3405,8 @@ def main() -> None:
 
     _log(f"arbos starting in {WORKING_DIR} (provider={PROVIDER}, model={CLAUDE_MODEL})")
     _kill_stale_claude_procs()
+    if PROVIDER == "codex" or FALLBACK_PROVIDER == "codex":
+        _kill_stale_codex_procs()
     if PROVIDER == "cursor" or FALLBACK_PROVIDER == "cursor":
         _kill_stale_agent_procs()
     _reload_env_secrets()
