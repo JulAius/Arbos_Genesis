@@ -98,13 +98,33 @@ Install steps for each CLI (Codex, Claude, OpenCode, Cursor) match `.env.example
 | `/restart` | Touch restart flag (pm2) |
 | `/update` | `git pull` + restart |
 
-## Telegram — public Bittensor chat
+## Telegram — canal / groupe (plusieurs membres)
 
-When **`TELEGRAM_PUBLIC_CHAT_IDS`** lists a supergroup/discussion id:
+**Objectif du bot dans ces salons :** réponses **précises** sur Bittensor en s’appuyant sur **`agcli` / `btcli`** (et la doc / le web si besoin) ; le pack **Chi** sert seulement de **contexte** (voir `PROMPT.md`).
 
-- **Members:** plain **text** or **voice** → Bittensor-focused answers (Chi + tools; Const-style tone; not financial advice).
-- **Slash commands:** **owner only** (see above).
-- **Media:** photos/documents **owner only** in public chats.
+Renseigne **`TELEGRAM_PUBLIC_CHAT_IDS`** avec les IDs numériques (virgule si plusieurs salons).
+
+### Canal avec commentaires (classique)
+
+Sur Telegram, les abonnés **discutent** sous les posts dans le **groupe de discussion** lié au canal, pas dans le fil du canal lui‑même.
+
+1. Crée le **canal**, active **Commentaires** et le **groupe de discussion** associé.
+2. Ajoute le **bot** dans ce **groupe de discussion** (pas seulement dans le canal).
+3. [@BotFather](https://t.me/BotFather) → `/setprivacy` → **Disable** pour que le bot voie les messages.
+4. Récupère l’ID du **groupe de discussion** (`-100…`) et mets‑le dans `TELEGRAM_PUBLIC_CHAT_IDS`.
+5. Redémarre pm2.
+
+### Supergroupe sans canal
+
+1. Crée un supergroupe, ajoute le bot + les membres.
+2. Même réglage **privacy** + ID du groupe dans `TELEGRAM_PUBLIC_CHAT_IDS`.
+
+### Règles
+
+- **Membres :** texte ou **vocal** → réponses Bittensor (outils + ton Const-style ; pas conseil financier).
+- **Commandes `/` :** **propriétaire** du bot uniquement (voir tableau plus haut).
+- **Médias :** photos / fichiers **propriétaire** seulement dans ces salons publics.
+- Le propriétaire enregistre le bot avec **`/start` en chat privé** avant toute chose.
 
 ## Knowledge base (Chi)
 
