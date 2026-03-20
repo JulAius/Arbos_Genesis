@@ -140,7 +140,9 @@ Use **`INDEX.yaml`** to find YAML **for context** only. **Primary grounding:** r
 
 1. Each **step** is one agent CLI invocation with tools.
 2. By default, steps run **back-to-back** on success; exponential backoff on repeated failures.
-3. Set **`GOAL_PAUSE_AFTER_EACH_STEP=true`** in `.env` to **stop after each step**: the goal auto-pauses when the agent run finishes; run **`/start <index>`** for the next step. (The **public group bot** uses one invocation **per member message** already—this flag only affects the **Ralph `/goal` loop**.)
+3. **Ralph step control** (only the `/goal` loop; public group chat is already **one reply per message**):
+   - **`GOAL_STOP_AFTER_SUCCESS=true`** — after a **successful** step, the goal **terminates** until you **`/start <index>`** again (e.g. après Nnouveau message / consigne).
+   - **`GOAL_PAUSE_AFTER_EACH_STEP=true`** — après **chaque** étape (succès ou échec), **pause** jusqu’à **`/start <index>`**.
 4. Only **`STATE.md`** carries memory between steps for a goal.
 5. Telegram streams replies; goal progress also shows in step messages when configured.
 6. Graceful shutdown on SIGINT/SIGTERM.

@@ -296,6 +296,11 @@ GOAL_PAUSE_AFTER_EACH_STEP = os.environ.get("GOAL_PAUSE_AFTER_EACH_STEP", "").lo
     "true",
     "yes",
 )
+GOAL_STOP_AFTER_SUCCESS = os.environ.get("GOAL_STOP_AFTER_SUCCESS", "").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 AUTO_PUSH_REMOTE = os.environ.get("AUTO_PUSH_REMOTE", "origin")
 AUTO_PUSH_BRANCH = os.environ.get("AUTO_PUSH_BRANCH", "main")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
@@ -2311,6 +2316,22 @@ def _goal_loop(index: int):
             _log(f"goal #{index}: failure #{failures}")
 
         gs.wake.clear()
+
+        if success and GOAL_STOP_AFTER_SUCCESS:
+            with _goals_lock:
+                gs.started = False
+                gs.paused = False
+                _save_goals()
+            failures = 0
+            _log(
+                f"goal #{index}: stopped after successful step (GOAL_STOP_AFTER_SUCCESS); "
+                f"/start {index} when ready for the next step",
+            )
+            _send_telegram_text(
+                f"Goal #{index}: reply sent — goal finished for now. Send /start {index} after your next message.",
+            )
+            gs.stop_event.set()
+            break
 
         if GOAL_PAUSE_AFTER_EACH_STEP:
             with _goals_lock:
