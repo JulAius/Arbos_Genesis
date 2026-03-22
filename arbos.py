@@ -386,6 +386,8 @@ ARBOS_TIMEOUT = int(os.environ.get("ARBOS_TIMEOUT", "1800"))  # 30 min wall-cloc
 
 _provider_lock = threading.Lock()
 _using_fallback = False
+_fallback_since: float = 0.0  # time.time() when fallback was activated
+FALLBACK_COOLDOWN = int(os.environ.get("FALLBACK_COOLDOWN", "300"))  # seconds before retrying primary
 
 _tls = threading.local()
 _log_lock = threading.Lock()
@@ -454,15 +456,11 @@ def _goals_json_path(workspace_id: int) -> Path:
 
 
 def _tg_goals_map(workspace_id: int) -> dict[int, GoalState]:
-    if workspace_id not in _tg_workspace_goals:
-        _tg_workspace_goals[workspace_id] = {}
-    return _tg_workspace_goals[workspace_id]
+    return _tg_workspace_goals.setdefault(workspace_id, {})
 
 
 def _tg_dm_goals_map(dm_chat_id: int) -> dict[int, GoalState]:
-    if dm_chat_id not in _tg_dm_goals:
-        _tg_dm_goals[dm_chat_id] = {}
-    return _tg_dm_goals[dm_chat_id]
+    return _tg_dm_goals.setdefault(dm_chat_id, {})
 
 
 def _goal_file(index: int, workspace_id: int = 0) -> Path:
@@ -471,6 +469,21 @@ def _goal_file(index: int, workspace_id: int = 0) -> Path:
 
 def _state_file(index: int, workspace_id: int = 0) -> Path:
     return _goal_dir(index, workspace_id) / "STATE.md"
+
+
+def _inject_state_crash(index: int, workspace_id: int, step: int, exc: Exception | None):
+    """Append crash/failure info to STATE.md so the next step knows what went wrong."""
+    try:
+        sf = _state_file(index, workspace_id)
+        ts = datetime.now().strftime("%H:%M:%S")
+        if exc:
+            entry = f"\n\n## ⚠️ Step {step} — CRASH ({ts})\n\n`{type(exc).__name__}: {str(exc)[:300]}`\n\nÉvite de reproduire la même approche au prochain step.\n"
+        else:
+            entry = f"\n\n## ⚠️ Step {step} — ÉCHEC ({ts})\n\nLe step a échoué (exit code non-zéro). Essaie une approche différente.\n"
+        with open(sf, "a", encoding="utf-8") as f:
+            f.write(entry)
+    except OSError:
+        pass
 
 
 def _inbox_file(index: int, workspace_id: int = 0) -> Path:
@@ -599,12 +612,13 @@ def _load_goals():
 
 
 def _total_registered_goals() -> int:
-    n = len(_goals)
-    for g in _tg_workspace_goals.values():
-        n += len(g)
-    for g in _tg_dm_goals.values():
-        n += len(g)
-    return n
+    with _goals_lock:
+        n = len(_goals)
+        for g in _tg_workspace_goals.values():
+            n += len(g)
+        for g in _tg_dm_goals.values():
+            n += len(g)
+        return n
 
 
 TELEGRAM_QA_GOAL_TEMPLATE_NAME = "GOAL_TELEGRAM_BITTENSOR.md"
@@ -733,6 +747,12 @@ def _reset_tokens():
     tid = threading.current_thread().ident or 0
     with _token_lock:
         _token_usage[tid] = {"input": 0, "output": 0}
+        # Prune dead thread entries (lightweight — only on reset)
+        alive = {t.ident for t in threading.enumerate()}
+        for dead in [k for k in _token_usage if k not in alive and k != tid]:
+            del _token_usage[dead]
+        for dead in [k for k in _token_owner if k not in alive]:
+            del _token_owner[dead]
 
 
 def _get_tokens() -> tuple[int, int]:
@@ -786,6 +806,10 @@ def load_prompt(goal_index: int, consume_inbox: bool = False, goal_step: int = 0
     if sf.exists():
         state_text = sf.read_text().strip()
         if state_text:
+            # Cap STATE.md to avoid context overflow (keep tail = most recent notes)
+            max_state = int(os.environ.get("MAX_STATE_CHARS", "30000"))
+            if len(state_text) > max_state:
+                state_text = "…(truncated)\n\n" + state_text[-max_state:]
             parts.append(f"## State\n\n{state_text}")
     inf = _inbox_file(goal_index, workspace_id)
     if inf.exists():
@@ -818,6 +842,18 @@ def make_run_dir(goal_index: int = 0, workspace_id: int = 0) -> Path:
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     run_dir = runs_dir / ts
     run_dir.mkdir(parents=True, exist_ok=True)
+    # Prune old run dirs (keep most recent MAX_RUN_DIRS)
+    import shutil
+    max_runs = int(os.environ.get("MAX_RUN_DIRS", "50"))
+    try:
+        dirs = sorted(
+            [d for d in runs_dir.iterdir() if d.is_dir()],
+            key=lambda d: d.name,
+        )
+        for old in dirs[:-max_runs]:
+            shutil.rmtree(old, ignore_errors=True)
+    except OSError:
+        pass
     return run_dir
 
 
@@ -885,7 +921,11 @@ def load_chatlog_group(max_chars: int = 3000, *, telegram_chat_id: int) -> str:
     lines: list[str] = []
     total = 0
     for f in reversed(files):
-        for raw in reversed(f.read_text().strip().splitlines()):
+        try:
+            content = f.read_text().strip()
+        except (OSError, FileNotFoundError):
+            continue  # file rotated away by concurrent append
+        for raw in reversed(content.splitlines()):
             try:
                 msg = json.loads(raw)
             except json.JSONDecodeError:
@@ -922,7 +962,11 @@ def load_chatlog(max_chars: int = 8000, *, telegram_user_id: int | None = None) 
     lines: list[str] = []
     total = 0
     for f in reversed(files):
-        for raw in reversed(f.read_text().strip().splitlines()):
+        try:
+            content = f.read_text().strip()
+        except (OSError, FileNotFoundError):
+            continue  # file rotated away by concurrent append
+        for raw in reversed(content.splitlines()):
             try:
                 msg = json.loads(raw)
             except json.JSONDecodeError:
@@ -1834,11 +1878,12 @@ def _is_quota_error(stderr_output: str) -> bool:
 
 
 def _switch_to_fallback():
-    global _using_fallback
+    global _using_fallback, _fallback_since
     with _provider_lock:
         if _using_fallback:
             return
         _using_fallback = True
+        _fallback_since = time.time()
     _log(f"quota exceeded — switching to fallback: {FALLBACK_PROVIDER}/{FALLBACK_MODEL}")
     if FALLBACK_PROVIDER != "opencode":
         _write_claude_settings()
@@ -1848,6 +1893,9 @@ def _try_primary():
     global _using_fallback
     with _provider_lock:
         if not _using_fallback:
+            return
+        # Cooldown: don't retry primary too soon after switching to fallback
+        if time.time() - _fallback_since < FALLBACK_COOLDOWN:
             return
         _using_fallback = False
     _log(f"trying primary provider: {PROVIDER}/{CLAUDE_MODEL}")
@@ -2887,10 +2935,10 @@ def _goal_loop_inner(
             gs.step_count = 0
             _log(f"goal #{index}{ws_tag} new [{current_hash}]: {current_goal[:100]}")
 
-        _step_count += 1
-        gs.step_count += 1
-        gs.last_run = datetime.now().isoformat()
         with _goals_lock:
+            _step_count += 1
+            gs.step_count += 1
+            gs.last_run = datetime.now().isoformat()
             _save_goals(workspace_id)
 
         if _using_fallback:
@@ -2917,6 +2965,8 @@ def _goal_loop_inner(
             _log(f"goal #{index}{ws_tag}: run_step CRASHED: {exc}")
             success = False
             failures += 1
+            # Inject crash info into STATE.md so next step knows what failed
+            _inject_state_crash(index, workspace_id, gs.step_count, exc)
             # For ephemeral goals, a crash is fatal — deliver error and clean up
             if gs.ephemeral:
                 _deliver_ephemeral_crash(index, workspace_id, gs, exc)
@@ -2941,6 +2991,7 @@ def _goal_loop_inner(
         else:
             failures += 1
             _log(f"goal #{index}{ws_tag}: failure #{failures}")
+            _inject_state_crash(index, workspace_id, gs.step_count, None)
 
         gs.wake.clear()
 
@@ -3447,12 +3498,14 @@ def _telegram_send_final_chunks(
     telegram_user_id: int | None = None,
     telegram_shared_room_id: int | None = None,
 ):
-    """Send one or more Telegram messages (4096 limit per message)."""
+    """Send one or more Telegram messages (4096 limit per message), with rate limiting."""
     max_len = 4096
     body = text.strip() or "(no output)"
     body = _redact_secrets(body)
-    for i in range(0, len(body), max_len):
-        chunk = body[i : i + max_len]
+    chunks = [body[i : i + max_len] for i in range(0, len(body), max_len)]
+    for idx, chunk in enumerate(chunks):
+        if idx > 0:
+            time.sleep(0.35)  # respect Telegram rate limits (~3 msg/s)
         bot.send_message(chat_id, chunk, **send_kw)
         log_chat(
             "bot",
@@ -3477,6 +3530,7 @@ def _create_ephemeral_arbos_goal(
     idx = int(time.time())
 
     # Ensure unique index within the workspace (under lock to avoid race)
+    # Also check for existing ephemeral goal from same user (dedup)
     with _goals_lock:
         if workspace_id < 0:
             gmap = _tg_goals_map(workspace_id)
@@ -3484,6 +3538,18 @@ def _create_ephemeral_arbos_goal(
             gmap = _tg_dm_goals_map(workspace_id)
         else:
             gmap = _goals
+        # Dedup: if this user already has an active ephemeral goal in this workspace, skip
+        if telegram_user_id is not None:
+            for _gs in gmap.values():
+                if _gs.ephemeral and _gs.started:
+                    try:
+                        _meta_path = _goal_dir(_gs.index, workspace_id) / "META.json"
+                        _meta = json.loads(_meta_path.read_text()) if _meta_path.exists() else {}
+                        if _meta.get("user_id") == telegram_user_id:
+                            _log(f"ephemeral dedup: user {telegram_user_id} already has goal #{_gs.index}")
+                            return _gs.index
+                    except Exception:
+                        pass
         while idx in gmap:
             idx += 1
 
@@ -3521,7 +3587,10 @@ def _create_ephemeral_arbos_goal(
         "2. Si une approche échoue, **note-la dans STATE.md** et essaie une alternative au prochain step\n"
         "3. Quand tu as la réponse complète, écris-la dans **RESPONSE.md** (même répertoire que GOAL.md)\n"
         "4. RESPONSE.md = texte final envoyé tel quel dans Telegram (Markdown, **en français**, max ~4000 chars)\n"
-        "5. Si tu ne trouves pas la réponse après plusieurs tentatives, écris dans RESPONSE.md ce que tu as trouvé\n\n"
+        "5. Si tu ne trouves pas la réponse après plusieurs tentatives, écris dans RESPONSE.md ce que tu as trouvé\n"
+        "6. **Connaissances techniques :** si tu découvres un workaround (parsing, auth, flag CLI, endpoint, "
+        "comportement inattendu), ajoute-le dans STATE.md sous un header `## Connaissances techniques` "
+        "avec une ligne `- description` par finding. Ces entrées seront automatiquement sauvegardées.\n\n"
         "## Langue\n"
         "**Réponse obligatoire en français.** Termes techniques anglais usuels : OK.\n"
         f"{state_instruction}"
@@ -3584,13 +3653,23 @@ def _create_ephemeral_arbos_goal(
 def _deliver_ephemeral_response(index: int, workspace_id: int):
     """Read RESPONSE.md + META.json from ephemeral goal dir, post answer to Telegram, log."""
     gdir = _goal_dir(index, workspace_id)
-    response_text = (gdir / "RESPONSE.md").read_text().strip()
+    try:
+        response_text = (gdir / "RESPONSE.md").read_text().strip()
+    except (OSError, FileNotFoundError):
+        _log(f"ephemeral goal #{index}: RESPONSE.md disappeared before delivery")
+        return
+    if not response_text:
+        _log(f"ephemeral goal #{index}: RESPONSE.md is empty, skipping delivery")
+        return
     try:
         meta = json.loads((gdir / "META.json").read_text())
     except (OSError, json.JSONDecodeError):
         _log(f"ephemeral goal #{index}: META.json missing or invalid, cannot deliver")
         return
-    chat_id = meta["chat_id"]
+    chat_id = meta.get("chat_id")
+    if not chat_id:
+        _log(f"ephemeral goal #{index}: META.json missing 'chat_id', cannot deliver")
+        return
     send_kw: dict[str, Any] = {}
     th = meta.get("message_thread_id")
     if th is not None:
@@ -3624,7 +3703,10 @@ def _deliver_ephemeral_timeout(index: int, workspace_id: int, gs: GoalState):
     )
     if state_text:
         msg += f"\n\n**Progrès :**\n{state_text}"
-    chat_id = meta["chat_id"]
+    chat_id = meta.get("chat_id")
+    if not chat_id:
+        _log(f"ephemeral goal #{index}: META.json missing 'chat_id', cannot deliver timeout")
+        return
     send_kw: dict[str, Any] = {}
     th = meta.get("message_thread_id")
     if th is not None:
@@ -3652,7 +3734,10 @@ def _deliver_ephemeral_crash(index: int, workspace_id: int, gs: GoalState, exc: 
         f"Erreur lors de la recherche (étape {gs.step_count}): "
         f"{type(exc).__name__}. Réessayez avec /arbos."
     )
-    chat_id = meta["chat_id"]
+    chat_id = meta.get("chat_id")
+    if not chat_id:
+        _log(f"ephemeral goal #{index}: META.json missing 'chat_id', cannot deliver crash notice")
+        return
     send_kw: dict[str, Any] = {}
     th = meta.get("message_thread_id")
     if th is not None:
@@ -3668,17 +3753,107 @@ def _deliver_ephemeral_crash(index: int, workspace_id: int, gs: GoalState, exc: 
     _log(f"ephemeral goal #{index}: crash notification delivered ({type(exc).__name__})")
 
 
+def _harvest_ephemeral_knowledge(index: int, workspace_id: int):
+    """Extract technical findings from ephemeral goal and append to workspace template.
+
+    Reads the goal's GOAL.md for any agent-added '## Connaissances techniques' entries
+    and the STATE.md for '## Findings' or '## Connaissances' sections.
+    Deduplicates against existing entries in the template before appending.
+    """
+    gdir = _goal_dir(index, workspace_id)
+    template_path = _telegram_qa_goal_template_path(workspace_id)
+    if not template_path.is_file():
+        return
+
+    # Collect new findings from ephemeral goal files
+    new_findings: list[str] = []
+
+    # 1. Check if agent wrote a KNOWLEDGE.md (explicit findings file)
+    knowledge_file = gdir / "KNOWLEDGE.md"
+    if knowledge_file.exists():
+        for line in knowledge_file.read_text().strip().splitlines():
+            line = line.strip()
+            if line.startswith("- "):
+                new_findings.append(line)
+
+    # 2. Check STATE.md for sections that look like findings
+    state_file = gdir / "STATE.md"
+    if state_file.exists():
+        in_findings = False
+        for line in state_file.read_text().splitlines():
+            stripped = line.strip().lower()
+            if stripped.startswith("## ") and any(kw in stripped for kw in (
+                "connaissance", "finding", "découvert", "workaround", "technique",
+                "apprentissage", "learned",
+            )):
+                in_findings = True
+                continue
+            if stripped.startswith("## "):
+                in_findings = False
+                continue
+            if in_findings and line.strip().startswith("- "):
+                new_findings.append(line.strip())
+
+    if not new_findings:
+        return
+
+    # Read existing template and extract current findings for dedup
+    template_text = template_path.read_text()
+    existing_lower = set()
+    in_ct = False
+    for line in template_text.splitlines():
+        if line.strip().startswith("## Connaissances techniques"):
+            in_ct = True
+            continue
+        if line.strip().startswith("## "):
+            in_ct = False
+        if in_ct and line.strip().startswith("- "):
+            # Normalize for dedup: lowercase, strip punctuation
+            existing_lower.add(line.strip().lower().rstrip("."))
+
+    # Filter out duplicates (fuzzy: check if core content already present)
+    truly_new = []
+    for f in new_findings:
+        normalized = f.lower().rstrip(".")
+        if normalized not in existing_lower:
+            # Also check substring match (if existing entry contains the new one)
+            if not any(normalized[2:] in ex for ex in existing_lower):
+                truly_new.append(f)
+
+    if not truly_new:
+        return
+
+    # Append to template
+    if "## Connaissances techniques" not in template_text:
+        template_text = template_text.rstrip() + "\n\n## Connaissances techniques\n\n> Section auto-incrémentée par le bot. Ne pas supprimer ce header.\n\n"
+
+    # Append new findings at the end of the file
+    addition = "\n".join(truly_new) + "\n"
+    template_text = template_text.rstrip() + "\n" + addition
+
+    template_path.write_text(template_text)
+    _log(f"ephemeral goal #{index}: harvested {len(truly_new)} new findings into template")
+
+
 def _cleanup_ephemeral_goal(
     index: int, workspace_id: int,
     goals_map: dict[int, GoalState], gs: GoalState,
 ):
     """Stop ephemeral goal loop, remove from map, delete goal dir."""
     import shutil
+    # Harvest knowledge BEFORE deleting the goal dir
+    try:
+        _harvest_ephemeral_knowledge(index, workspace_id)
+    except Exception as exc:
+        _log(f"ephemeral goal #{index}: knowledge harvest failed: {exc}")
     with _goals_lock:
         gs.stop_event.set()
         gs.started = False
         goals_map.pop(index, None)
         _save_goals(workspace_id)
+        # Prune empty DM goals maps to prevent accumulation
+        if workspace_id > 0 and not goals_map:
+            _tg_dm_goals.pop(workspace_id, None)
     gdir = _goal_dir(index, workspace_id)
     if gdir.exists():
         shutil.rmtree(gdir, ignore_errors=True)
@@ -5072,7 +5247,7 @@ def run_bot():
         downloaded = bot.download_file(file_info.file_path)
 
         ext = file_info.file_path.rsplit(".", 1)[-1] if "." in file_info.file_path else "ogg"
-        tmp_path = WORKING_DIR / f"_voice_tmp.{ext}"
+        tmp_path = WORKING_DIR / f"_voice_tmp_{threading.current_thread().ident}_{int(time.time())}.{ext}"
         tmp_path.write_bytes(downloaded)
 
         try:
