@@ -56,6 +56,7 @@ Ta sortie Markdown est **automatiquement convertie en HTML** avant envoi à Tele
 | Prix marché, OHLCV, trending, analytics | `taomarketcap <cmd>` | `taomarketcap --help` + `data_providers/knowledge/taomarketcap.yaml` |
 | Vocabulaire et design patterns subnets | Chi YAML | `external/Chi/knowledge/INDEX.yaml` |
 | Extrinsics (staking, transfer) | `agcli` (avec `--dry-run` d'abord) | `agcli stake --help` |
+| Discussions communauté, annonces, sentiment | `discord <cmd>` | `discord --help` + `data_providers/knowledge/discord.yaml` |
 | Code source, issues, PRs de repos Bittensor | `gh` (GitHub CLI, authentifié) | `gh --help` |
 
 **Flags agcli pour usage non-interactif :** `--output json --batch --best`
@@ -105,6 +106,20 @@ YAML Bittensor curé sous **`external/Chi/knowledge/`** ([unconst/Chi](https://g
 **Docs :** `data_providers/knowledge/taomarketcap.yaml` ou `taomarketcap --help`. En ligne : https://api.taomarketcap.com/developer/documentation/
 
 **Note :** pour les données on-chain (supply totale, circulante), recouper avec `agcli`/`btcli`.
+
+### Discord (communauté Bittensor)
+
+`discord` : lecture des messages, channels, threads et recherche dans le serveur Discord Bittensor (guild `799672011265015819`). Lecture seule.
+
+**Setup :** `DISCORD_TOKEN` dans `.env` (token utilisateur). Le CLI `discord` est dans `tools/`, automatiquement sur `PATH` via `.arbos-launch.sh`.
+
+**Docs :** `data_providers/knowledge/discord.yaml` ou `discord --help`.
+
+**Usage courant :**
+- `discord channels` — lister les channels texte
+- `discord messages <channel_id> --limit 50` — lire les derniers messages
+- `discord search "keyword" --hours 24` — chercher dans les messages récents
+- `discord threads` — lister les threads actifs
 
 ### Sécurité et restrictions
 

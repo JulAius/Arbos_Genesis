@@ -1,0 +1,79 @@
+# Discord API Reference (read-only)
+# Default guild: 799672011265015819 (Bittensor Discord)
+
+base_url: "https://discord.com/api/v10"
+auth: "Authorization: Bot <token>   # 'Bot' prefix required"
+output: "All commands output JSON to stdout"
+docs: "https://discord.com/developers/docs/reference"
+env_var: "DISCORD_TOKEN"
+
+# Auth: user token (DISCORD_TOKEN) or bot token (DISCORD_BOT_TOKEN). User token preferred.
+# Rate limit: 50 req/s global. 429 handled automatically with Retry-After.
+
+commands:
+
+  guild-info: |
+    discord guild-info [--guild ID]
+    Guild name, description, member count, online count.
+    Default guild: Bittensor Discord (799672011265015819).
+
+  channels: |
+    discord channels [--guild ID]
+    List text, announcement and forum channels (skip voice/categories).
+    Fields: id, name, type, topic, parent_id.
+
+    Example:
+      discord channels
+      discord channels | jq '.[].name'
+
+  channels-all: |
+    discord channels-all [--guild ID]
+    List ALL channels including voice and categories.
+
+  messages: |
+    discord messages <channel_id> [--limit N] [--before MSG_ID] [--after MSG_ID] [-v]
+    Read recent messages from a channel or thread. Max 100 per call.
+    Fields: id, author, content, timestamp, attachments, embeds, reply_to.
+    Use --before/--after for pagination (message IDs).
+    Use -v for verbose output (author_id, channel_id, thread info).
+
+    Example:
+      discord messages 1234567890 --limit 50
+      discord messages 1234567890 --after 1111111111 --limit 100
+
+  pinned: |
+    discord pinned <channel_id>
+    Get pinned messages from a channel or thread.
+
+  threads: |
+    discord threads [--guild ID]
+    List all active threads in the guild.
+    Fields: id, name, parent_id, message_count, member_count.
+
+  forum-threads: |
+    discord forum-threads <channel_id> [--limit N]
+    List archived threads in a forum channel.
+
+  search: |
+    discord search [query] [--channel ID] [--author ID] [--has TYPE] [--hours N] [--limit N]
+    Search messages in the guild. Max 25 results per call.
+    --has: link, embed, file, video, image, sound, sticker.
+    --hours: only messages from last N hours.
+    Returns: total_results + list of messages.
+
+    Example:
+      discord search "subnet registration"
+      discord search --channel 1234567890 --hours 24
+      discord search "dTAO" --limit 10
+
+  channel-info: |
+    discord channel-info <channel_id>
+    Get info about a specific channel (name, type, topic).
+
+workflow:
+  - Use `discord channels` to discover channel IDs by name
+  - Use `discord messages <id>` to read recent messages
+  - Use `discord search "keyword"` for cross-channel search
+  - Use `discord search --hours 24` for recent activity
+  - Use `discord threads` to find active discussions
+  - Combine with `--before`/`--after` for deeper pagination

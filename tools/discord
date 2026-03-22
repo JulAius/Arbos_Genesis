@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Discord API CLI wrapper (read-only)
+# Usage: discord <command> [options]
+# See: discord --help
+
+_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHONPATH="${PYTHONPATH:-${_REPO}}" python3 "${_REPO}/data_providers/discord.py" "$@"

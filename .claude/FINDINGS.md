@@ -245,3 +245,8 @@ Agent discovers workaround → writes "## Connaissances techniques" in STATE.md
 - `_claude_semaphore` : acquérir dans run_agent/run_agent_streaming, release dans finally
 - `_token_lock` : protège `_token_usage` (thread-keyed dict) et `_token_owner`
 - `_chatlog_lock` : protège les écritures chatlog ; les lectures utilisent try/except pour la rotation
+
+### Wallet PnL 48h — Taostats vs TaoMarketCap (`tools/wallet_pnl_48h.py`)
+- Un **PnL glissant sur 48 h** par wallet repose sur l’**API portfolio Taostats** (ex. `get_dtao_stake_portfolio`, fenêtre en jours ≈ `ceil(heures/24)`) ou une **reconstitution on-chain**.
+- **TaoMarketCap** (`internal/v1/leaderboard/coldkeys/`, requête par `coldkey=`) renvoie surtout du **cumul** (`total_pnl`, `realized_pnl`, etc.) ; **pas de métrique `pnl_48h` / fenêtre glissante** dans ce leaderboard public testé.
+- **`--tmc-only`** sert de **référence cumulée** lorsque Taostats est indisponible ou sans clé ; à ne pas présenter comme un PnL sur 48 h.
