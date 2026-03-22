@@ -909,11 +909,19 @@ def _send_telegram_text(text: str, *, chat_id: int | None = None, target: tuple[
     cid = _telegram_api_chat_id(chat_id_raw)
     text = _redact_secrets(text)
     try:
+        # Try with Markdown first for rich formatting
         response = requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": cid, "text": text[:4000]},
+            json={"chat_id": cid, "text": text[:4000], "parse_mode": "Markdown"},
             timeout=15,
         )
+        if response.status_code == 400:
+            # Malformed Markdown — fallback to plain text
+            response = requests.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": cid, "text": text[:4000]},
+                timeout=15,
+            )
         response.raise_for_status()
     except requests.RequestException as exc:
         _log_telegram_request_error("telegram send failed", exc)
@@ -934,9 +942,15 @@ def _send_telegram_new(text: str, *, target: tuple[str, str] | None = None) -> i
     try:
         response = requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": cid, "text": text[:4000]},
+            json={"chat_id": cid, "text": text[:4000], "parse_mode": "Markdown"},
             timeout=15,
         )
+        if response.status_code == 400:
+            response = requests.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": cid, "text": text[:4000]},
+                timeout=15,
+            )
         response.raise_for_status()
         log_chat("bot", text[:1000])
         return response.json().get("result", {}).get("message_id")
@@ -956,7 +970,7 @@ def _edit_telegram_text(message_id: int, text: str, *, target: tuple[str, str] |
     try:
         resp = requests.post(
             f"https://api.telegram.org/bot{token}/editMessageText",
-            json={"chat_id": cid, "message_id": message_id, "text": text[:4000]},
+            json={"chat_id": cid, "message_id": message_id, "text": text[:4000], "parse_mode": "Markdown"},
             timeout=15,
         )
         if not resp.ok:
