@@ -898,6 +898,87 @@ def _telegram_step_target(workspace_id: int = 0) -> tuple[str, str] | None:
     return _step_update_target()
 
 
+def _md_to_telegram_html(text: str) -> str:
+    """Convert standard Markdown (from LLM output) to Telegram-compatible HTML.
+
+    Handles: **bold**, *italic*, `code`, ```code blocks```, [links](url).
+    Escapes <, >, & in plain text. Falls through gracefully on edge cases.
+    """
+    import html as _html
+
+    result = []
+    i = 0
+    n = len(text)
+
+    while i < n:
+        # Fenced code blocks: ```...```
+        if text[i:i+3] == '```':
+            end = text.find('```', i + 3)
+            if end != -1:
+                block = text[i+3:end]
+                # Strip optional language hint on first line
+                if block and block[0] != '\n' and '\n' in block:
+                    first_nl = block.index('\n')
+                    lang = block[:first_nl].strip()
+                    code = block[first_nl+1:]
+                    if lang and lang.isalpha():
+                        result.append(f'<pre><code class="language-{_html.escape(lang)}">{_html.escape(code)}</code></pre>')
+                    else:
+                        result.append(f'<pre>{_html.escape(block)}</pre>')
+                else:
+                    result.append(f'<pre>{_html.escape(block.strip(chr(10)))}</pre>')
+                i = end + 3
+                continue
+            # No closing ``` — treat as plain text
+            result.append(_html.escape('```'))
+            i += 3
+            continue
+
+        # Inline code: `...`
+        if text[i] == '`':
+            end = text.find('`', i + 1)
+            if end != -1 and '\n' not in text[i+1:end]:
+                result.append(f'<code>{_html.escape(text[i+1:end])}</code>')
+                i = end + 1
+                continue
+
+        # Bold: **...**
+        if text[i:i+2] == '**':
+            end = text.find('**', i + 2)
+            if end != -1:
+                inner = _md_to_telegram_html(text[i+2:end])
+                result.append(f'<b>{inner}</b>')
+                i = end + 2
+                continue
+
+        # Italic: *...*  (single, not double)
+        if text[i] == '*' and (i + 1 < n and text[i+1] != '*'):
+            end = text.find('*', i + 1)
+            if end != -1 and text[end-1:end+1] != '**':
+                inner = _md_to_telegram_html(text[i+1:end])
+                result.append(f'<i>{inner}</i>')
+                i = end + 1
+                continue
+
+        # Links: [text](url)
+        if text[i] == '[':
+            bracket_end = text.find(']', i + 1)
+            if bracket_end != -1 and bracket_end + 1 < n and text[bracket_end + 1] == '(':
+                paren_end = text.find(')', bracket_end + 2)
+                if paren_end != -1:
+                    link_text = _html.escape(text[i+1:bracket_end])
+                    url = text[bracket_end+2:paren_end]
+                    result.append(f'<a href="{_html.escape(url)}">{link_text}</a>')
+                    i = paren_end + 1
+                    continue
+
+        # Plain character — escape HTML
+        result.append(_html.escape(text[i]))
+        i += 1
+
+    return ''.join(result)
+
+
 def _send_telegram_text(text: str, *, chat_id: int | None = None, target: tuple[str, str] | None = None) -> bool:
     if target is None and chat_id is not None:
         token = os.getenv("TAU_BOT_TOKEN")
@@ -908,15 +989,15 @@ def _send_telegram_text(text: str, *, chat_id: int | None = None, target: tuple[
     token, chat_id_raw = target
     cid = _telegram_api_chat_id(chat_id_raw)
     text = _redact_secrets(text)
+    html_text = _md_to_telegram_html(text)[:4000]
     try:
-        # Try with Markdown first for rich formatting
         response = requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": cid, "text": text[:4000], "parse_mode": "Markdown"},
+            json={"chat_id": cid, "text": html_text, "parse_mode": "HTML"},
             timeout=15,
         )
         if response.status_code == 400:
-            # Malformed Markdown — fallback to plain text
+            # Malformed HTML — fallback to plain text
             response = requests.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
                 json={"chat_id": cid, "text": text[:4000]},
@@ -939,10 +1020,11 @@ def _send_telegram_new(text: str, *, target: tuple[str, str] | None = None) -> i
     token, chat_id_raw = target
     cid = _telegram_api_chat_id(chat_id_raw)
     text = _redact_secrets(text)
+    html_text = _md_to_telegram_html(text)[:4000]
     try:
         response = requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": cid, "text": text[:4000], "parse_mode": "Markdown"},
+            json={"chat_id": cid, "text": html_text, "parse_mode": "HTML"},
             timeout=15,
         )
         if response.status_code == 400:
@@ -967,10 +1049,11 @@ def _edit_telegram_text(message_id: int, text: str, *, target: tuple[str, str] |
     token, chat_id_raw = target
     cid = _telegram_api_chat_id(chat_id_raw)
     text = _redact_secrets(text)
+    html_text = _md_to_telegram_html(text)[:4000]
     try:
         resp = requests.post(
             f"https://api.telegram.org/bot{token}/editMessageText",
-            json={"chat_id": cid, "message_id": message_id, "text": text[:4000], "parse_mode": "Markdown"},
+            json={"chat_id": cid, "message_id": message_id, "text": html_text, "parse_mode": "HTML"},
             timeout=15,
         )
         if not resp.ok:
