@@ -380,7 +380,7 @@ AUTO_PUSH_REMOTE = os.environ.get("AUTO_PUSH_REMOTE", "origin")
 AUTO_PUSH_BRANCH = os.environ.get("AUTO_PUSH_BRANCH", "main")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 ARBOS_MAX_STEPS = int(os.environ.get("ARBOS_MAX_STEPS", "5"))
-ARBOS_TIMEOUT = int(os.environ.get("ARBOS_TIMEOUT", "900"))  # 15 min wall-clock
+ARBOS_TIMEOUT = int(os.environ.get("ARBOS_TIMEOUT", "1800"))  # 30 min wall-clock
 
 _provider_lock = threading.Lock()
 _using_fallback = False
@@ -1092,7 +1092,10 @@ def _send_telegram_text(text: str, *, chat_id: int | None = None, target: tuple[
     return True
 
 
-def _send_telegram_new(text: str, *, target: tuple[str, str] | None = None) -> int | None:
+def _send_telegram_new(
+    text: str, *, target: tuple[str, str] | None = None,
+    message_thread_id: int | None = None,
+) -> int | None:
     """Send a new Telegram message and return its message_id."""
     target = target or _step_update_target()
     if not target:
@@ -1101,16 +1104,22 @@ def _send_telegram_new(text: str, *, target: tuple[str, str] | None = None) -> i
     cid = _telegram_api_chat_id(chat_id_raw)
     text = _redact_secrets(text)
     html_text = _md_to_telegram_html(text)[:4000]
+    payload: dict[str, Any] = {"chat_id": cid, "text": html_text, "parse_mode": "HTML"}
+    if message_thread_id is not None:
+        payload["message_thread_id"] = message_thread_id
     try:
         response = requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": cid, "text": html_text, "parse_mode": "HTML"},
+            json=payload,
             timeout=15,
         )
         if response.status_code == 400:
+            payload2: dict[str, Any] = {"chat_id": cid, "text": text[:4000]}
+            if message_thread_id is not None:
+                payload2["message_thread_id"] = message_thread_id
             response = requests.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": cid, "text": text[:4000]},
+                json=payload2,
                 timeout=15,
             )
         response.raise_for_status()
@@ -2570,17 +2579,42 @@ def run_step(prompt: str, step_number: int, goal_index: int = 0, goal_step: int 
     target = _telegram_step_target(workspace_id)
     step_label = f"Goal #{goal_index} Step {goal_step}" if goal_index else f"Step {step_number}"
     step_msg_id: int | None = None
+    step_thread_id: int | None = None
     step_msg_text = ""
     last_edit = 0.0
 
-    if target:
-        step_msg_id = _send_telegram_new(f"{step_label}: starting...", target=target)
+    # Reuse pre-existing progress message (seeded by ephemeral goal creation)
+    _seeded = False
+    if target and smf.exists():
+        try:
+            _seed = json.loads(smf.read_text())
+            step_msg_id = _seed.get("msg_id")
+            step_thread_id = _seed.get("thread_id")
+            if step_msg_id:
+                _seeded = True
+                _edit_telegram_text(step_msg_id, f"{step_label}: starting…", target=target)
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    if target and not _seeded:
+        # Try reading thread_id from META.json for topic-group support
+        if step_thread_id is None:
+            meta_path = _goal_dir(goal_index, workspace_id) / "META.json"
+            if meta_path.exists():
+                try:
+                    step_thread_id = json.loads(meta_path.read_text()).get("message_thread_id")
+                except (json.JSONDecodeError, OSError):
+                    pass
+        step_msg_id = _send_telegram_new(
+            f"{step_label}: starting...", target=target, message_thread_id=step_thread_id,
+        )
         if step_msg_id:
             smf.parent.mkdir(parents=True, exist_ok=True)
             smf.write_text(json.dumps({
                 "msg_id": step_msg_id, "text": f"{step_label}: starting...",
+                "thread_id": step_thread_id,
             }))
-    else:
+    elif not target:
         smf.unlink(missing_ok=True)
 
     def _edit_step_msg(text: str, *, force: bool = False):
@@ -2763,8 +2797,6 @@ def _auto_push_if_profitable(step_num: int, goal_index: int = 1):
 
 def _goal_loop(workspace_id: int, index: int):
     """Run the agent loop for a single goal (0=legacy CLI, <0=workspace group, >0=DM chat)."""
-    global _step_count
-
     with _goals_lock:
         if workspace_id == 0:
             goals_map = _goals
@@ -2776,11 +2808,33 @@ def _goal_loop(workspace_id: int, index: int):
     if not gs:
         return
 
-    failures = 0
     gf = _goal_file(index, workspace_id)
     # workspace_id IS the chat_id for both workspace groups and DM chats
     tg_notify = workspace_id if workspace_id else None
     ws_tag = f" ws={workspace_id}" if workspace_id else ""
+
+    try:
+        _goal_loop_inner(workspace_id, index, goals_map, gs, gf, tg_notify, ws_tag)
+    except Exception as exc:
+        _log(f"goal #{index}{ws_tag} FATAL crash: {exc}")
+        if gs.ephemeral:
+            _deliver_ephemeral_crash(index, workspace_id, gs, exc)
+            _cleanup_ephemeral_goal(index, workspace_id, goals_map, gs)
+        else:
+            _send_telegram_text(
+                f"⚠️ Goal #{index}: fatal crash ({type(exc).__name__}: {str(exc)[:200]}). Thread will restart.",
+                chat_id=tg_notify,
+            )
+    _log(f"goal #{index}{ws_tag} loop exited")
+
+
+def _goal_loop_inner(
+    workspace_id: int, index: int,
+    goals_map: dict[int, GoalState], gs: GoalState,
+    gf: Path, tg_notify: int | None, ws_tag: str,
+):
+    global _step_count
+    failures = 0
 
     while not gs.stop_event.is_set():
         if not gf.exists() or not gf.read_text().strip():
@@ -2827,10 +2881,28 @@ def _goal_loop(workspace_id: int, index: int):
 
         _log(f"goal #{index}{ws_tag}: prompt={len(prompt)} chars")
 
-        success = run_step(
-            prompt, _step_count, goal_index=index, goal_step=gs.step_count,
-            workspace_id=workspace_id,
-        )
+        try:
+            success = run_step(
+                prompt, _step_count, goal_index=index, goal_step=gs.step_count,
+                workspace_id=workspace_id,
+            )
+        except Exception as exc:
+            _log(f"goal #{index}{ws_tag}: run_step CRASHED: {exc}")
+            success = False
+            failures += 1
+            # For ephemeral goals, a crash is fatal — deliver error and clean up
+            if gs.ephemeral:
+                _deliver_ephemeral_crash(index, workspace_id, gs, exc)
+                _cleanup_ephemeral_goal(index, workspace_id, goals_map, gs)
+                break
+            # For regular goals, notify and continue with backoff
+            _send_telegram_text(
+                f"⚠️ Goal #{index}: step crashed ({type(exc).__name__}: {str(exc)[:200]}). Retrying with backoff…",
+                chat_id=tg_notify,
+            )
+            backoff = min(2 ** failures, 120)
+            gs.wake.wait(timeout=backoff)
+            continue
 
         gs.last_finished = datetime.now().isoformat()
         with _goals_lock:
@@ -2917,8 +2989,6 @@ def _goal_loop(workspace_id: int, index: int):
         elif step_delay > 0:
             _log(f"goal #{index}{ws_tag}: waiting {step_delay}s (delay)")
             gs.wake.wait(timeout=step_delay)
-
-    _log(f"goal #{index}{ws_tag} loop exited")
 
 
 def _goal_manager_tick_map(goals_map: dict[int, GoalState], workspace_id: int):
@@ -3374,6 +3444,7 @@ def _create_ephemeral_arbos_goal(
     message_thread_id: int | None,
     telegram_user_id: int | None,
     telegram_room_id: int | None,
+    progress_msg_id: int | None = None,
 ) -> int:
     """Create an ephemeral goal for /arbos: loop until RESPONSE.md or max steps."""
     idx = int(time.time())
@@ -3456,6 +3527,15 @@ def _create_ephemeral_arbos_goal(
     _goal_runs_dir(idx, workspace_id).mkdir(parents=True, exist_ok=True)
     (gdir / "META.json").write_text(json.dumps(meta, indent=2))
 
+    # Seed .step_msg so run_step() reuses the "🔄 Recherche en cours…" message
+    if progress_msg_id is not None:
+        smf = _step_msg_file(idx, workspace_id)
+        smf.write_text(json.dumps({
+            "msg_id": progress_msg_id,
+            "text": "🔄 Recherche en cours…",
+            "thread_id": message_thread_id,
+        }))
+
     # Register and start
     gs = GoalState(
         index=idx,
@@ -3530,6 +3610,34 @@ def _deliver_ephemeral_timeout(index: int, workspace_id: int, gs: GoalState):
     else:
         _send_telegram_text(msg, chat_id=chat_id)
     _log(f"ephemeral goal #{index}: timeout after {gs.step_count} steps")
+
+
+def _deliver_ephemeral_crash(index: int, workspace_id: int, gs: GoalState, exc: Exception):
+    """Notify user that the ephemeral goal crashed."""
+    gdir = _goal_dir(index, workspace_id)
+    try:
+        meta = json.loads((gdir / "META.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        _log(f"ephemeral goal #{index}: META.json missing, cannot deliver crash notice")
+        return
+    msg = (
+        f"Erreur lors de la recherche (étape {gs.step_count}): "
+        f"{type(exc).__name__}. Réessayez avec /arbos."
+    )
+    chat_id = meta["chat_id"]
+    send_kw: dict[str, Any] = {}
+    th = meta.get("message_thread_id")
+    if th is not None:
+        send_kw["message_thread_id"] = th
+    if _bot is not None:
+        _telegram_send_final_chunks(
+            _bot, chat_id, msg, send_kw,
+            telegram_user_id=meta.get("user_id"),
+            telegram_shared_room_id=meta.get("room_id"),
+        )
+    else:
+        _send_telegram_text(msg, chat_id=chat_id)
+    _log(f"ephemeral goal #{index}: crash notification delivered ({type(exc).__name__})")
 
 
 def _cleanup_ephemeral_goal(
@@ -4840,7 +4948,7 @@ def run_bot():
 
             threading.Thread(target=_run, daemon=True).start()
         else:
-            bot.send_message(cid, "🔄 Recherche en cours…", **tw_kw)
+            _ack = bot.send_message(cid, "🔄 Recherche en cours…", **tw_kw)
             _create_ephemeral_arbos_goal(
                 workspace_id=tw,
                 user_text=rest,
@@ -4850,6 +4958,7 @@ def run_bot():
                 message_thread_id=th,
                 telegram_user_id=uid,
                 telegram_room_id=rid,
+                progress_msg_id=getattr(_ack, "message_id", None),
             )
 
     @bot.message_handler(commands=["restart"])
@@ -4978,7 +5087,7 @@ def run_bot():
             tw_kw2: dict[str, Any] = {}
             if th is not None:
                 tw_kw2["message_thread_id"] = th
-            bot.send_message(cid, "🔄 Recherche en cours…", **tw_kw2)
+            _ack = bot.send_message(cid, "🔄 Recherche en cours…", **tw_kw2)
             _create_ephemeral_arbos_goal(
                 workspace_id=tw,
                 user_text=user_text,
@@ -4988,6 +5097,7 @@ def run_bot():
                 message_thread_id=th,
                 telegram_user_id=uid,
                 telegram_room_id=rid,
+                progress_msg_id=getattr(_ack, "message_id", None),
             )
 
     @bot.message_handler(content_types=["document"])
@@ -5072,7 +5182,7 @@ def run_bot():
             tw_kw2: dict[str, Any] = {}
             if th is not None:
                 tw_kw2["message_thread_id"] = th
-            bot.send_message(cid, "🔄 Recherche en cours…", **tw_kw2)
+            _ack = bot.send_message(cid, "🔄 Recherche en cours…", **tw_kw2)
             _create_ephemeral_arbos_goal(
                 workspace_id=tw,
                 user_text=user_text,
@@ -5082,6 +5192,7 @@ def run_bot():
                 message_thread_id=th,
                 telegram_user_id=uid,
                 telegram_room_id=rid,
+                progress_msg_id=getattr(_ack, "message_id", None),
             )
 
     @bot.message_handler(content_types=["photo"])
@@ -5154,7 +5265,7 @@ def run_bot():
             tw_kw2: dict[str, Any] = {}
             if th is not None:
                 tw_kw2["message_thread_id"] = th
-            bot.send_message(cid, "🔄 Recherche en cours…", **tw_kw2)
+            _ack = bot.send_message(cid, "🔄 Recherche en cours…", **tw_kw2)
             _create_ephemeral_arbos_goal(
                 workspace_id=tw,
                 user_text=user_text,
@@ -5164,6 +5275,7 @@ def run_bot():
                 message_thread_id=th,
                 telegram_user_id=uid,
                 telegram_room_id=rid,
+                progress_msg_id=getattr(_ack, "message_id", None),
             )
 
     @bot.message_handler(func=lambda m: True)
