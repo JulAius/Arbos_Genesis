@@ -394,7 +394,8 @@ _shutdown = threading.Event()
 _claude_semaphore = threading.Semaphore(MAX_CONCURRENT)
 _bot = None  # set in run_bot(), used by ephemeral goal delivery
 _step_count = 0
-_token_usage = {"input": 0, "output": 0}
+_token_usage: dict[int, dict[str, int]] = {}  # thread_id -> {input, output}
+_token_owner: dict[int, int] = {}  # heartbeat_thread_id -> parent_thread_id
 _token_lock = threading.Lock()
 _child_procs: set[subprocess.Popen] = set()
 _child_procs_lock = threading.Lock()
@@ -663,6 +664,8 @@ def _seed_fixed_goal_for(idx: int, workspace_id: int, summary: str):
     with _goals_lock:
         if workspace_id == 0:
             goals_map = _goals
+        elif workspace_id > 0:
+            goals_map = _tg_dm_goals_map(workspace_id)
         else:
             goals_map = _tg_goals_map(workspace_id)
         if idx not in goals_map:
@@ -721,14 +724,27 @@ def fmt_duration(seconds: float) -> str:
 
 
 def _reset_tokens():
+    tid = threading.current_thread().ident or 0
     with _token_lock:
-        _token_usage["input"] = 0
-        _token_usage["output"] = 0
+        _token_usage[tid] = {"input": 0, "output": 0}
 
 
 def _get_tokens() -> tuple[int, int]:
+    tid = threading.current_thread().ident or 0
     with _token_lock:
-        return _token_usage["input"], _token_usage["output"]
+        # Heartbeat threads read their parent's tokens
+        tid = _token_owner.get(tid, tid)
+        t = _token_usage.get(tid, {"input": 0, "output": 0})
+        return t["input"], t["output"]
+
+
+def _add_tokens(inp: int, out: int):
+    tid = threading.current_thread().ident or 0
+    with _token_lock:
+        if tid not in _token_usage:
+            _token_usage[tid] = {"input": 0, "output": 0}
+        _token_usage[tid]["input"] += inp
+        _token_usage[tid]["output"] += out
 
 
 def fmt_tokens(inp: int, out: int, elapsed: float = 0) -> str:
@@ -1552,9 +1568,7 @@ async def _stream_openai_to_anthropic(oai_response: httpx.Response, model: str):
                         "delta": {"type": "input_json_delta", "partial_json": args_chunk},
                     })
 
-    with _token_lock:
-        _token_usage["input"] += usage["input_tokens"]
-        _token_usage["output"] += usage["output_tokens"]
+    _add_tokens(usage["input_tokens"], usage["output_tokens"])
 
     if in_text_block:
         yield _sse_event("content_block_stop", {
@@ -1743,9 +1757,7 @@ async def _proxy_messages(request: Request):
                 actual_model = oai_data.get("model", "?")
                 u = oai_data.get("usage", {})
                 if u:
-                    with _token_lock:
-                        _token_usage["input"] += u.get("prompt_tokens", 0)
-                        _token_usage["output"] += u.get("completion_tokens", 0)
+                    _add_tokens(u.get("prompt_tokens", 0), u.get("completion_tokens", 0))
                 _log(f"proxy: response [{routing}] via {routing_label} model={actual_model}")
                 return JSONResponse(content=_openai_response_to_anthropic(oai_data, model))
             except httpx.TimeoutException:
@@ -2098,9 +2110,7 @@ def _run_claude_once(cmd, env, on_text=None, on_activity=None, cwd: Path | None 
                 if active_provider == "openrouter":
                     u = msg.get("usage", {})
                     if u:
-                        with _token_lock:
-                            _token_usage["input"] += u.get("input_tokens", 0)
-                            _token_usage["output"] += u.get("output_tokens", 0)
+                        _add_tokens(u.get("input_tokens", 0), u.get("output_tokens", 0))
             elif etype == "item.completed":
                 item = evt.get("item", {})
                 if item.get("type") == "agent_message" and item.get("text"):
@@ -2113,9 +2123,7 @@ def _run_claude_once(cmd, env, on_text=None, on_activity=None, cwd: Path | None 
                 if active_provider == "openrouter":
                     u = evt.get("usage", {})
                     if u:
-                        with _token_lock:
-                            _token_usage["input"] += u.get("input_tokens", 0)
-                            _token_usage["output"] += u.get("output_tokens", 0)
+                        _add_tokens(u.get("input_tokens", 0), u.get("output_tokens", 0))
     finally:
         sel.unregister(proc.stdout)
         sel.close()
@@ -2229,9 +2237,7 @@ def _run_cursor_once(cmd, env, on_text=None, on_activity=None, cwd: Path | None 
                 result_text = evt.get("result", accumulated_text)
                 usage = evt.get("usage", {})
                 if usage:
-                    with _token_lock:
-                        _token_usage["input"] += usage.get("inputTokens", 0)
-                        _token_usage["output"] += usage.get("outputTokens", 0)
+                    _add_tokens(usage.get("inputTokens", 0), usage.get("outputTokens", 0))
 
     finally:
         sel.unregister(proc.stdout)
@@ -2332,9 +2338,7 @@ def _run_codex_once(cmd, env, on_text=None, on_activity=None, cwd: Path | None =
             elif etype == "turn.completed":
                 usage = evt.get("usage", {})
                 if usage:
-                    with _token_lock:
-                        _token_usage["input"] += usage.get("input_tokens", 0)
-                        _token_usage["output"] += usage.get("output_tokens", 0)
+                    _add_tokens(usage.get("input_tokens", 0), usage.get("output_tokens", 0))
             elif etype == "error" and evt.get("message"):
                 result_text = evt["message"]
     finally:
@@ -2428,9 +2432,7 @@ def _run_opencode_once(cmd, env, on_text=None, on_activity=None, prompt: str = "
 
             elif etype == "step_finish":
                 tokens = part.get("tokens", {})
-                with _token_lock:
-                    _token_usage["input"] += tokens.get("input", 0)
-                    _token_usage["output"] += tokens.get("output", 0)
+                _add_tokens(tokens.get("input", 0), tokens.get("output", 0))
 
     finally:
         sel.unregister(proc.stdout)
@@ -2645,13 +2647,23 @@ def run_step(prompt: str, step_number: int, goal_index: int = 0, goal_step: int 
         tok = f" | {fmt_tokens(inp, out, elapsed_s)}" if (inp or out) else ""
         _edit_step_msg(f"{step_label} ({fmt_duration(elapsed_s)}{tok})\n{status}")
 
+    _parent_tid = threading.current_thread().ident or 0
+
     def _heartbeat():
-        while not _heartbeat_stop.wait(timeout=5):
-            elapsed_s = time.monotonic() - t0
-            inp, out = _get_tokens()
-            tok = f" | {fmt_tokens(inp, out, elapsed_s)}" if (inp or out) else ""
-            status = _last_activity[0] or "working..."
-            _edit_step_msg(f"{step_label} ({fmt_duration(elapsed_s)}{tok})\n{status}", force=True)
+        # Register this heartbeat thread to read parent's token counters
+        hb_tid = threading.current_thread().ident or 0
+        with _token_lock:
+            _token_owner[hb_tid] = _parent_tid
+        try:
+            while not _heartbeat_stop.wait(timeout=5):
+                elapsed_s = time.monotonic() - t0
+                inp, out = _get_tokens()
+                tok = f" | {fmt_tokens(inp, out, elapsed_s)}" if (inp or out) else ""
+                status = _last_activity[0] or "working..."
+                _edit_step_msg(f"{step_label} ({fmt_duration(elapsed_s)}{tok})\n{status}", force=True)
+        finally:
+            with _token_lock:
+                _token_owner.pop(hb_tid, None)
 
     success = False
     try:
@@ -3449,15 +3461,16 @@ def _create_ephemeral_arbos_goal(
     """Create an ephemeral goal for /arbos: loop until RESPONSE.md or max steps."""
     idx = int(time.time())
 
-    # Ensure unique index within the workspace
-    if workspace_id < 0:
-        gmap = _tg_goals_map(workspace_id)
-    elif workspace_id > 0:
-        gmap = _tg_dm_goals_map(workspace_id)
-    else:
-        gmap = _goals
-    while idx in gmap:
-        idx += 1
+    # Ensure unique index within the workspace (under lock to avoid race)
+    with _goals_lock:
+        if workspace_id < 0:
+            gmap = _tg_goals_map(workspace_id)
+        elif workspace_id > 0:
+            gmap = _tg_dm_goals_map(workspace_id)
+        else:
+            gmap = _goals
+        while idx in gmap:
+            idx += 1
 
     # Mission from fixed goal template
     mission = _telegram_qa_fixed_goal_markdown(workspace_id)
@@ -3900,7 +3913,7 @@ def run_agent_streaming(
                 active_cmd = _claude_cmd(prompt, model=wm)
                 env = _claude_env(workspace_id=workspace_id)
             else:
-                active_cmd = _claude_cmd(prompt, extra_flags=["--model", "bot"])
+                active_cmd = _claude_cmd(prompt, model=wm)
                 env = _claude_env(workspace_id=workspace_id)
 
             if active_provider == "codex":
@@ -4638,10 +4651,24 @@ def run_bot():
             _log(f"cleared {scope_label} via /clear")
             return
         with _goals_lock:
+            # Stop ALL goal maps — legacy, workspace, and DM
             for gs in _goals.values():
                 gs.stop_event.set()
                 gs.wake.set()
             _goals.clear()
+            for ws_id, gmap in list(_tg_workspace_goals.items()):
+                for gs in gmap.values():
+                    gs.stop_event.set()
+                    gs.wake.set()
+                gmap.clear()
+            _tg_workspace_goals.clear()
+            for dm_id, gmap in list(_tg_dm_goals.items()):
+                for gs in gmap.values():
+                    gs.stop_event.set()
+                    gs.wake.set()
+                gmap.clear()
+            _tg_dm_goals.clear()
+            _save_goals(0)
         removed = []
         if CONTEXT_DIR.exists():
             shutil.rmtree(CONTEXT_DIR)
@@ -4666,8 +4693,10 @@ def run_bot():
         except Exception:
             pass
         CONTEXT_DIR.mkdir(parents=True, exist_ok=True)
-        summary = ", ".join(removed) if removed else "nothing to clear"
+        GOALS_DIR.mkdir(parents=True, exist_ok=True)
         WORKSPACES_DIR.mkdir(parents=True, exist_ok=True)
+        DM_GOALS_DIR.mkdir(parents=True, exist_ok=True)
+        summary = ", ".join(removed) if removed else "nothing to clear"
         bot.send_message(cid, f"Cleared: {summary}\nReady for a fresh /goal.")
         _log(f"cleared via /clear command: {summary}")
 
