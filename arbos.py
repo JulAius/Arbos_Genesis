@@ -411,6 +411,7 @@ class GoalState:
     goal_hash: str = ""
     last_run: str = ""
     last_finished: str = ""
+    notify_chat_id: int = 0  # Telegram chat to send step notifications (0 = use chat_id.txt fallback)
     thread: threading.Thread | None = field(default=None, repr=False)
     wake: threading.Event = field(default_factory=threading.Event, repr=False)
     stop_event: threading.Event = field(default_factory=threading.Event, repr=False)
@@ -474,7 +475,7 @@ def _goal_ctx_rel_path(goal_index: int, workspace_id: int = 0) -> str:
 
 
 def _serialize_goal_entry(gs: GoalState) -> dict[str, Any]:
-    return {
+    d: dict[str, Any] = {
         "summary": gs.summary,
         "delay": gs.delay,
         "started": gs.started,
@@ -485,6 +486,9 @@ def _serialize_goal_entry(gs: GoalState) -> dict[str, Any]:
         "last_run": gs.last_run,
         "last_finished": gs.last_finished,
     }
+    if gs.notify_chat_id:
+        d["notify_chat_id"] = gs.notify_chat_id
+    return d
 
 
 def _save_goals(workspace_id: int = 0):
@@ -523,6 +527,7 @@ def _load_goals_json_into(workspace_id: int, goals_map: dict[int, GoalState]):
             goal_hash=info.get("goal_hash", ""),
             last_run=info.get("last_run", ""),
             last_finished=info.get("last_finished", ""),
+            notify_chat_id=info.get("notify_chat_id", 0),
         )
 
 
@@ -915,14 +920,19 @@ def _step_update_target() -> tuple[str, str] | None:
     return token, chat_id
 
 
-def _telegram_step_target(workspace_id: int = 0) -> tuple[str, str] | None:
-    """Telegram (token, chat_id) for goal-step status messages: DM/file chat_id or workspace supergroup id."""
+def _telegram_step_target(workspace_id: int = 0, notify_chat_id: int = 0) -> tuple[str, str] | None:
+    """Telegram (token, chat_id) for goal-step status messages.
+
+    Priority: workspace_id > notify_chat_id (from GoalState) > chat_id.txt fallback.
+    """
     token = os.getenv("TAU_BOT_TOKEN")
     if not token:
         _log("step update skipped: TAU_BOT_TOKEN not set")
         return None
     if workspace_id != 0:
         return token, str(workspace_id)
+    if notify_chat_id:
+        return token, str(notify_chat_id)
     return _step_update_target()
 
 
@@ -2505,7 +2515,8 @@ def extract_text(result: subprocess.CompletedProcess) -> str:
     return output
 
 
-def run_step(prompt: str, step_number: int, goal_index: int = 0, goal_step: int = 0, workspace_id: int = 0) -> bool:
+def run_step(prompt: str, step_number: int, goal_index: int = 0, goal_step: int = 0,
+             workspace_id: int = 0, notify_chat_id: int = 0) -> bool:
     run_dir = make_run_dir(goal_index=goal_index, workspace_id=workspace_id)
     t0 = time.monotonic()
 
@@ -2514,7 +2525,7 @@ def run_step(prompt: str, step_number: int, goal_index: int = 0, goal_step: int 
 
     smf = _step_msg_file(goal_index, workspace_id) if goal_index else CONTEXT_DIR / ".step_msg"
 
-    target = _telegram_step_target(workspace_id)
+    target = _telegram_step_target(workspace_id, notify_chat_id=notify_chat_id)
     step_label = f"Goal #{goal_index} Step {goal_step}" if goal_index else f"Step {step_number}"
     step_msg_id: int | None = None
     step_msg_text = ""
@@ -2720,7 +2731,8 @@ def _goal_loop(workspace_id: int, index: int):
 
     failures = 0
     gf = _goal_file(index, workspace_id)
-    tg_notify = workspace_id if workspace_id else None
+    # Notification target: workspace group for workspace goals, notify_chat_id for legacy DM goals
+    tg_notify = workspace_id if workspace_id else (gs.notify_chat_id or None)
     ws_tag = f" ws={workspace_id}" if workspace_id else ""
 
     while not gs.stop_event.is_set():
@@ -2769,7 +2781,8 @@ def _goal_loop(workspace_id: int, index: int):
         _log(f"goal #{index}{ws_tag}: prompt={len(prompt)} chars")
 
         success = run_step(
-            prompt, _step_count, goal_index=index, goal_step=gs.step_count, workspace_id=workspace_id,
+            prompt, _step_count, goal_index=index, goal_step=gs.step_count,
+            workspace_id=workspace_id, notify_chat_id=gs.notify_chat_id,
         )
 
         gs.last_finished = datetime.now().isoformat()
@@ -3272,7 +3285,11 @@ def _build_public_bittensor_prompt(
 ) -> str:
     """Prompt for `/arbos`: fixed goal from file + per-user STATE.md + full toolkit."""
     room = chat_title or "this chat"
-    chi = _chi_knowledge_section(compact=False)
+
+    # High-level system prompt (universal)
+    prompt_md = ""
+    if PROMPT_FILE.exists():
+        prompt_md = PROMPT_FILE.read_text().strip()
 
     # Fixed goal from workspace GOAL_TELEGRAM_BITTENSOR.md (or repo root fallback)
     goal_text = _telegram_qa_fixed_goal_markdown(workspace_id)
@@ -3284,20 +3301,6 @@ def _build_public_bittensor_prompt(
         state_path = _arbos_user_state_path(telegram_room_id, telegram_user_id)
         if state_path.exists():
             state_text = state_path.read_text().strip()
-
-    # Group chatlog (all members)
-    group_ctx = ""
-    if telegram_room_id is not None:
-        g = load_chatlog_group(max_chars=2800, telegram_chat_id=telegram_room_id)
-        if g:
-            group_ctx = (
-                "## Contexte salon (tous les membres — ce qu'ils ont demandé au bot)\n\n"
-                f"{g}\n\n"
-                "**Consigne :** tu **vois** ce que d'autres utilisateurs ont posé. Tu **réponds** au **membre courant** "
-                f"({user_label}) : enchaîne sur **son** historique personnel ci‑dessous et sur "
-                "**## Message**. Ne mélange pas les fils : la continuité est celle du **user_id** de ce tour.\n\n"
-                "---\n\n"
-            )
 
     # Per-user chatlog history
     hist = ""
@@ -3323,11 +3326,14 @@ def _build_public_bittensor_prompt(
         if state_text else ""
     )
 
+    # High-level system context from PROMPT.md
+    prompt_section = f"# System prompt\n\n{prompt_md}\n\n---\n\n" if prompt_md else ""
+
     return (
+        f"{prompt_section}"
         f"You are the **public Bittensor assistant** in « {room} » — shared Telegram **discussion / supergroup**.\n\n"
         "## Mission (goal fixe)\n\n"
         f"{goal_text}\n\n"
-        f"{chi}"
         f"{user_state_section}"
         "## Langue\n"
         "**Réponse obligatoire en français.** Même si le message utilisateur est dans une autre langue, rédige toute la réponse en français "
@@ -3340,7 +3346,6 @@ def _build_public_bittensor_prompt(
         "Présente les résultats sous forme de tableau ou liste structurée.\n\n"
         "## Security\n"
         "Never read or echo `.env`, API keys, mnemonics, or coldkeys.\n\n"
-        f"{group_ctx}"
         f"{hist}"
         f"## Message (demande actuelle de {user_label})\n{user_text}"
         f"{state_instruction}"
@@ -3752,6 +3757,9 @@ def run_bot():
         return None
 
     def _save_chat_id(chat_id: int):
+        """Save fallback chat_id for legacy goals. Skip workspace group IDs to avoid cross-contamination."""
+        if chat_id in workspace_group_ids:
+            return
         CHAT_ID_FILE.write_text(str(chat_id))
 
     def _parse_step_delay_arg(raw: str) -> int:
@@ -4132,6 +4140,9 @@ def run_bot():
             else:
                 idx = max(gmap.keys(), default=0) + 1
             gs = GoalState(index=idx, summary=summary)
+            # Legacy goals (ws=0): store the DM chat_id for notification routing
+            if not ws:
+                gs.notify_chat_id = cid
             gmap[idx] = gs
             gdir = _goal_dir(idx, ws)
             gdir.mkdir(parents=True, exist_ok=True)

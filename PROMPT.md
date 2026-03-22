@@ -10,29 +10,40 @@ Your code is simply a Ralph-loop: a while loop which feeds a prompt to a coding 
 
 ## Multi-goal system
 
-Arbos supports multiple concurrent goals. Each goal is identified by an integer index and has its own isolated context directory:
+Arbos supports multiple concurrent goals. Each goal is identified by an integer index and has its own isolated context directory.
+
+**Which base path?** There are two layouts (do **not** assume `context/goals/` if your prompt says otherwise):
+
+| Mode | Base path |
+|------|-----------|
+| **Legacy** (no Telegram workspace) | `context/goals/<index>/` |
+| **Telegram supergroup workspace** (Bittensor `/arbos`, `TELEGRAM_WORKSPACE_GROUP_IDS`) | `context/workspace/<telegram_chat_id>/goals/<index>/` — goal #1 may be seeded from that workspace’s `GOAL_TELEGRAM_BITTENSOR.md` when `TELEGRAM_QA_FIXED_GOAL` is enabled |
+
+The **`## Goal`** block in your prompt includes a line like **`Your context files are in context/workspace/…/goals/…/`** or **`…/context/goals/…/`** — treat that as the **source of truth** for paths.
+
+Same filenames under the base:
 
 ```
-context/goals/<index>/
+<goal_base>/
   GOAL.md      — your objective (read-only unless told otherwise)
   STATE.md     — your working memory and notes to yourself
   INBOX.md     — messages from the operator (consumed after each step)
   runs/        — per-step artifacts (rollout.md, logs.txt)
 ```
 
-You are running as **one specific goal**. Your goal index and file paths are shown in the `## Goal` section of your prompt. Only read and write files within your own `context/goals/<index>/` directory.
+You are running as **one specific goal**. Only read and write files under **your** `<goal_base>` directory.
 
 Your prompt is built from these sources:
 
 - `PROMPT.md` (this file — shared across all goals, do not re-read or edit it)
-- `context/goals/<index>/GOAL.md` (your objective)
-- `context/goals/<index>/STATE.md` (your working memory)
-- `context/goals/<index>/INBOX.md` (operator notes, cleared after each step)
+- `<goal_base>/GOAL.md` (your objective)
+- `<goal_base>/STATE.md` (your working memory)
+- `<goal_base>/INBOX.md` (operator notes, cleared after each step)
 - Recent Telegram chat history from `context/chat/` (shared operator chat)
 
 The goal loop only runs while the goal's `GOAL.md` is non-empty and the goal is started.
 
-After each step, artifacts are saved to `context/goals/<index>/runs/<timestamp>/`.
+After each step, artifacts are saved to `<goal_base>/runs/<timestamp>/`.
 
 Each loop iteration is called a step — a single call to the active agent CLI (Claude Code, Cursor, Codex, or OpenCode depending on configuration). You receive the full prompt, think through your approach, and execute — all in one invocation.
 
@@ -45,7 +56,7 @@ On consecutive failures, exponential backoff applies (2^n seconds, capped at 120
 
 The operator is a human who communicates with you through Telegram. Their messages are processed by the Claude Code CLI in this repository to perform actions like restarting the pm2 process, pausing goals, adapting the code, updating your goal and state, and relaying your messages. The chat history is stored as rolling JSONL files in `context/chat/`. Progress updates should be reflected in your step output and in `STATE.md`, not sent as separate outbox messages during the step.
 
-If `TELEGRAM_PUBLIC_CHAT_IDS` or workspace group ids are set, members use **`/arbos`** on a **dedicated** path driven by the fixed-goal file. That traffic is **not** your Ralph `GOAL.md` unless the operator mirrors it. Your loop stays goal-driven from `context/goals/<index>/`.
+If `TELEGRAM_PUBLIC_CHAT_IDS` or workspace group ids are set, members use **`/arbos`** on a **dedicated** path driven by the fixed-goal file. That traffic is **not** your Ralph `GOAL.md` unless the operator mirrors it. Your loop stays goal-driven from **your** `<goal_base>` (legacy `context/goals/…` or workspace `context/workspace/<id>/goals/…`).
 
 Files sent by the operator via Telegram are saved to `context/files/` and their path is included in the operator message. Text files under 8 KB are also inlined. To send files back to the operator, use `python arbos.py sendfile path/to/file [--caption 'text']`. Add `--photo` to send images as compressed photos instead of documents.
 
@@ -57,14 +68,14 @@ You have **no memory between steps**. Each step is a fresh CLI invocation. The o
 
 Each step runs with full permissions (all tools allowed, no approval prompts). Plan your approach at the start of each step, then execute. There is no separate plan phase — think and act in a single pass.
 
-Previous run artifacts (`context/goals/<index>/runs/*/rollout.md`, etc.) are **not** included in your prompt. If something from a previous step matters for the next one, put it in `STATE.md`.
+Previous run artifacts (`<goal_base>/runs/*/rollout.md`, etc.) are **not** included in your prompt. If something from a previous step matters for the next one, put it in `STATE.md`.
 
 ## Conventions
 
 - **State**: Keep your `STATE.md` short, high-signal, and action-oriented.
 - **Goal**: Do not edit your `GOAL.md` unless the operator explicitly asks for that.
 - **Chat history**: The durable operator interaction log lives in `context/chat/*.jsonl`.
-- **Run artifacts**: Step-specific outputs live in `context/goals/<index>/runs/<timestamp>/`.
+- **Run artifacts**: Step-specific outputs live in `<goal_base>/runs/<timestamp>/`.
 - **Shared tools**: Put reusable scripts in `tools/` when they are generally useful.
 - **Background processes**: Use `pm2` for long-lived processes and leave enough breadcrumbs in `STATE.md` for the next step.
 - **Be proactive**: Work in stages, keep notes for your future self, and keep moving toward the goal.
