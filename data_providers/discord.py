@@ -110,6 +110,33 @@ def _enforce_guild(guild_id: str) -> None:
         raise PermissionError(f"Access restricted to Bittensor guild ({ALLOWED_GUILD}). Got: {guild_id}")
 
 
+# ── Permission bits ──────────────────────────────────────────────────────────
+
+PERM_BITS = {
+    0x1: "CREATE_INSTANT_INVITE",
+    0x2: "KICK_MEMBERS",
+    0x4: "BAN_MEMBERS",
+    0x8: "ADMINISTRATOR",
+    0x10: "MANAGE_CHANNELS",
+    0x20: "MANAGE_GUILD",
+    0x400: "VIEW_CHANNEL",
+    0x800: "SEND_MESSAGES",
+    0x2000: "MANAGE_MESSAGES",
+    0x4000: "EMBED_LINKS",
+    0x8000: "ATTACH_FILES",
+    0x10000: "READ_MESSAGE_HISTORY",
+    0x20000: "MENTION_EVERYONE",
+    0x10000000: "MANAGE_ROLES",
+    0x20000000: "MANAGE_WEBHOOKS",
+    0x800000000: "MODERATE_MEMBERS",
+}
+
+
+def _perm_flags(value: int) -> list[str]:
+    """Decode a permission integer into a list of flag names."""
+    return [name for bit, name in PERM_BITS.items() if value & bit]
+
+
 # ── Guild ────────────────────────────────────────────────────────────────────
 
 def get_guild(guild_id: str = DEFAULT_GUILD) -> dict:
@@ -122,6 +149,77 @@ def get_guild_channels(guild_id: str = DEFAULT_GUILD) -> list:
     """List all channels in a guild. Returns channel objects with id, name, type, parent_id, topic."""
     _enforce_guild(guild_id)
     return _get(f"/guilds/{guild_id}/channels")
+
+
+def get_guild_roles(guild_id: str = DEFAULT_GUILD) -> list:
+    """List all roles in a guild."""
+    _enforce_guild(guild_id)
+    return _get(f"/guilds/{guild_id}/roles")
+
+
+def get_guild_member(guild_id: str, user_id: str) -> dict:
+    """Get a guild member by user ID."""
+    _enforce_guild(guild_id)
+    return _get(f"/guilds/{guild_id}/members/{user_id}")
+
+
+def get_roles_summary(guild_id: str = DEFAULT_GUILD) -> list[dict]:
+    """Return admin/mod/owner roles with decoded permissions."""
+    roles = get_guild_roles(guild_id)
+    guild = get_guild(guild_id)
+    owner_id = guild.get("owner_id")
+    result = []
+    for r in sorted(roles, key=lambda x: x.get("position", 0), reverse=True):
+        perms = int(r.get("permissions", "0"))
+        is_admin = bool(perms & 0x8)
+        is_mod = bool(perms & (0x2 | 0x4 | 0x2000 | 0x10000000 | 0x800000000))
+        if is_admin or is_mod:
+            result.append({
+                "id": r["id"],
+                "name": r["name"],
+                "position": r.get("position"),
+                "admin": is_admin,
+                "mod": is_mod,
+                "key_perms": _perm_flags(perms),
+            })
+    return {"owner_id": owner_id, "roles": result}
+
+
+def get_channel_permissions(channel_id: str, guild_id: str = DEFAULT_GUILD) -> dict:
+    """Get permission overwrites for a channel, resolved with role/user names."""
+    _enforce_guild(guild_id)
+    channel = get_channel(channel_id)
+    roles = get_guild_roles(guild_id)
+    role_map = {r["id"]: r["name"] for r in roles}
+    overwrites = channel.get("permission_overwrites", [])
+    result = []
+    for ow in overwrites:
+        oid = ow["id"]
+        otype = "user" if ow["type"] == 1 else "role"
+        name = role_map.get(oid, oid)
+        if otype == "user":
+            try:
+                member = get_guild_member(guild_id, oid)
+                name = member.get("user", {}).get("username", oid)
+                nick = member.get("nick")
+                if nick:
+                    name = f"{name} ({nick})"
+            except Exception:
+                pass
+        allow = int(ow.get("allow", "0"))
+        deny = int(ow.get("deny", "0"))
+        entry = {
+            "type": otype,
+            "name": name,
+            "allow": _perm_flags(allow) if allow else [],
+            "deny": _perm_flags(deny) if deny else [],
+        }
+        result.append(entry)
+    return {
+        "channel": channel.get("name"),
+        "channel_id": channel_id,
+        "overwrites": result,
+    }
 
 
 # ── Channels ─────────────────────────────────────────────────────────────────
@@ -319,6 +417,15 @@ def _cli():
     p = S.add_parser("channel-info", help="Get info about a specific channel")
     p.add_argument("channel_id", help="Channel ID")
 
+    # ── Roles & Permissions
+    S.add_parser("roles", help="List admin/mod/owner roles in the guild")
+
+    p = S.add_parser("permissions", help="Show permission overwrites for a channel")
+    p.add_argument("channel_id", help="Channel ID")
+
+    p = S.add_parser("member", help="Get info about a guild member")
+    p.add_argument("user_id", help="User ID")
+
     args = P.parse_args()
     a = vars(args)
 
@@ -426,6 +533,38 @@ def _cli():
             data = get_channel(a["channel_id"])
             if not raw:
                 data = _format_channel(data)
+            _out(data)
+
+        elif cmd == "roles":
+            data = get_roles_summary(guild)
+            if not raw:
+                # Resolve guild owner username
+                try:
+                    owner = get_guild_member(guild, data["owner_id"])
+                    data["owner"] = owner.get("user", {}).get("username", data["owner_id"])
+                    data["owner_nick"] = owner.get("nick")
+                except Exception:
+                    data["owner"] = data["owner_id"]
+            _out(data)
+
+        elif cmd == "permissions":
+            _out(get_channel_permissions(a["channel_id"], guild))
+
+        elif cmd == "member":
+            member = get_guild_member(guild, a["user_id"])
+            roles_raw = get_guild_roles(guild)
+            role_map = {r["id"]: r["name"] for r in roles_raw}
+            if not raw:
+                member_roles = [role_map.get(rid, rid) for rid in member.get("roles", [])]
+                data = {
+                    "username": member.get("user", {}).get("username"),
+                    "global_name": member.get("user", {}).get("global_name"),
+                    "nick": member.get("nick"),
+                    "roles": member_roles,
+                    "joined_at": member.get("joined_at"),
+                }
+            else:
+                data = member
             _out(data)
 
         else:
