@@ -260,6 +260,8 @@ def _delete_env_key_arbos(key: str):
 
 
 def _workspace_json_path(workspace_id: int) -> Path:
+    if workspace_id > 0:
+        return DM_GOALS_DIR / str(workspace_id) / "workspace.json"
     return WORKSPACES_DIR / str(workspace_id) / "workspace.json"
 
 
@@ -610,8 +612,12 @@ _TELEGRAM_QA_GOAL_TEMPLATE_FALLBACK = WORKING_DIR / TELEGRAM_QA_GOAL_TEMPLATE_NA
 
 
 def _telegram_qa_goal_template_path(workspace_id: int = 0) -> Path:
-    """Per-workspace goal template: workspace dir first, then repo root fallback."""
-    if workspace_id:
+    """Per-workspace goal template: workspace/DM dir first, then repo root fallback."""
+    if workspace_id > 0:
+        dm_path = DM_GOALS_DIR / str(workspace_id) / TELEGRAM_QA_GOAL_TEMPLATE_NAME
+        if dm_path.is_file():
+            return dm_path
+    elif workspace_id < 0:
         ws_path = WORKSPACES_DIR / str(workspace_id) / TELEGRAM_QA_GOAL_TEMPLATE_NAME
         if ws_path.is_file():
             return ws_path
@@ -788,7 +794,16 @@ def load_prompt(goal_index: int, consume_inbox: bool = False, goal_step: int = 0
             parts.append(f"## Inbox\n\n{inbox_text}")
         if consume_inbox:
             inf.write_text("")
-    chatlog = load_chatlog()
+    # Load appropriate chatlog based on workspace type
+    if workspace_id < 0:
+        # Workspace group: load group chatlog (all members)
+        chatlog = load_chatlog_group(telegram_chat_id=workspace_id)
+    elif workspace_id > 0:
+        # DM: no shared chatlog (ephemeral goals have their own STATE.md seed)
+        chatlog = ""
+    else:
+        # Legacy CLI: global chatlog
+        chatlog = load_chatlog()
     if chatlog:
         parts.append(chatlog)
     return "\n\n".join(parts)

@@ -32,20 +32,18 @@ Les skills `/fix`, `/improve`, `/status` le lisent pour prioriser le travail.
 - **Description:** `_reset_tokens()` clear le dict global partagé entre tous les steps.
 - **Fix:** `_token_usage` est maintenant thread-keyed (dict par thread_id). `_add_tokens()` helper pour les incréments. `_token_owner` dict pour que les heartbeat threads lisent les compteurs de leur thread parent.
 
-### [OPEN] LOW — load_prompt charge le chatlog global (l.775)
-- **Date:** 2026-03-22
-- **Description:** `load_prompt()` appelle `load_chatlog()` sans `telegram_user_id`. Les goals workspace/DM voient le chatlog legacy au lieu du per-user/per-group.
-- **Impact:** Contexte conversationnel incorrect pour les goals non-legacy.
+### [FIXED] LOW — load_prompt charge le chatlog global (l.797)
+- **Date:** 2026-03-22 | **Fixed:** 2026-03-22
+- **Description:** `load_prompt()` chargeait le chatlog global pour tous les workspace types.
+- **Fix:** 3-way dispatch : workspace → `load_chatlog_group(chat_id)`, DM → pas de chatlog partagé (seed dans STATE.md), legacy → global.
 
-### [OPEN] LOW — _workspace_json_path ignore DM (l.263)
-- **Date:** 2026-03-22
-- **Description:** Retourne toujours `WORKSPACES_DIR / str(workspace_id) / "workspace.json"` même pour DM (>0). Devrait utiliser `DM_GOALS_DIR`.
-- **Impact:** Les overrides `/model` en DM créent des fichiers orphelins dans le mauvais répertoire.
+### [FIXED] LOW — _workspace_json_path ignore DM (l.263)
+- **Date:** 2026-03-22 | **Fixed:** 2026-03-22
+- **Fix:** Route vers `DM_GOALS_DIR / str(workspace_id) / workspace.json` quand `workspace_id > 0`.
 
-### [OPEN] LOW — _telegram_qa_goal_template_path ignore DM (l.614)
-- **Date:** 2026-03-22
-- **Description:** Cherche le template dans `WORKSPACES_DIR` pour DM (>0) au lieu de `DM_GOALS_DIR`.
-- **Impact:** Pas de template override possible pour les DMs.
+### [FIXED] LOW — _telegram_qa_goal_template_path ignore DM (l.614)
+- **Date:** 2026-03-22 | **Fixed:** 2026-03-22
+- **Fix:** 3-way dispatch : DM → cherche dans `DM_GOALS_DIR`, workspace → `WORKSPACES_DIR`, sinon fallback repo root.
 
 ### [OPEN] LOW — btcli shim false positive sur flags à valeur (tools/shims/btcli l.25)
 - **Date:** 2026-03-22
