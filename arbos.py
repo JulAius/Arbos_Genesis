@@ -3405,7 +3405,7 @@ def run_agent_streaming(
         if not display:
             return
         try:
-            bot.edit_message_text(display, chat_id, msg.message_id)
+            bot.edit_message_text(_md_to_telegram_html(display), chat_id, msg.message_id, parse_mode="HTML")
             last_edit = now
         except Exception:
             pass
@@ -3564,25 +3564,33 @@ def run_agent_streaming(
                     pass
         else:
             # Replace the "⏳ Traitement..." ack with the first chunk, then send extra chunks.
-            body = _redact_secrets(current_text.strip()) or "(no output)"
+            body = _md_to_telegram_html(_redact_secrets(current_text.strip())) or "(no output)"
             max_len = 4096
             chunks = [body[i: i + max_len] for i in range(0, len(body), max_len)]
             first_replaced = False
             if msg is not None and chunks:
                 try:
-                    bot.edit_message_text(chunks[0], chat_id, msg.message_id)
+                    bot.edit_message_text(chunks[0], chat_id, msg.message_id, parse_mode="HTML")
+                    first_replaced = True
+                except Exception:
+                    try:
+                        bot.edit_message_text(chunks[0], chat_id, msg.message_id)
+                        first_replaced = True
+                    except Exception:
+                        pass
+                if first_replaced:
                     log_chat(
                         "bot", chunks[0][:1000],
                         telegram_user_id=telegram_log_user_id,
                         telegram_shared_room_id=telegram_log_room_id,
                     )
-                    first_replaced = True
-                except Exception:
-                    pass
             for i, chunk in enumerate(chunks):
                 if i == 0 and first_replaced:
                     continue
-                bot.send_message(chat_id, chunk, **send_kw)
+                try:
+                    bot.send_message(chat_id, chunk, parse_mode="HTML", **send_kw)
+                except Exception:
+                    bot.send_message(chat_id, chunk, **send_kw)
                 log_chat(
                     "bot", chunk[:1000],
                     telegram_user_id=telegram_log_user_id,
@@ -3752,20 +3760,20 @@ def run_bot():
         if not _telegram_owner_ids():
             bot.send_message(
                 cid,
-                "No owner yet — open a **private chat** with this bot and send /start once.",
-                parse_mode="Markdown",
+                _md_to_telegram_html("No owner yet — open a **private chat** with this bot and send /start once."),
+                parse_mode="HTML",
             )
         elif _is_public_qa_chat(cid):
             bot.send_message(
                 cid,
-                "Réservé aux opérateurs. Pour poser une question : `/arbos` puis votre texte (voix/photo/fichier : légende `/arbos …`).",
-                parse_mode="Markdown",
+                _md_to_telegram_html("Réservé aux opérateurs. Pour poser une question : `/arbos` puis votre texte (voix/photo/fichier : légende `/arbos …`)."),
+                parse_mode="HTML",
             )
         elif cid in workspace_group_ids:
             bot.send_message(
                 cid,
-                "Réservé aux opérateurs. Question : `/arbos` … (médias : légende `/arbos …`).",
-                parse_mode="Markdown",
+                _md_to_telegram_html("Réservé aux opérateurs. Question : `/arbos` … (médias : légende `/arbos …`)."),
+                parse_mode="HTML",
             )
         else:
             bot.send_message(cid, "Unauthorized.")
@@ -3780,8 +3788,8 @@ def run_bot():
             else:
                 bot.send_message(
                     chat.id,
-                    "No owner yet. The first /start must be in **private chat** with this bot.",
-                    parse_mode="Markdown",
+                    _md_to_telegram_html("No owner yet. The first /start must be in **private chat** with this bot."),
+                    parse_mode="HTML",
                 )
                 return
         if not _is_owner(uid):
@@ -3794,10 +3802,12 @@ def run_bot():
         if len(args) < 2:
             bot.send_message(
                 cid,
-                "Use `/goal` … In workspace groups the loop **auto-starts**.\n"
-                "Commands: `/help` / `/ls` / `/goal` / `/start` / `/pause` / `/unpause` / `/force` "
-                "/ `/delay` / `/bash` / `/env` / `/model` / …",
-                parse_mode="Markdown",
+                _md_to_telegram_html(
+                    "Use `/goal` … In workspace groups the loop **auto-starts**.\n"
+                    "Commands: `/help` / `/ls` / `/goal` / `/start` / `/pause` / `/unpause` / `/force` "
+                    "/ `/delay` / `/bash` / `/env` / `/model` / …"
+                ),
+                parse_mode="HTML",
             )
             return
         try:
@@ -4241,12 +4251,14 @@ def run_bot():
                 extra = f"\nWorkspace model override: `{wm or '(default)'}`"
             bot.send_message(
                 cid,
-                f"Current: `{provider}/{model}`{extra}\n\n"
-                "Usage: `/model <model_name>`\n"
-                "In a **workspace** supergroup (`TELEGRAM_WORKSPACE_GROUP_IDS`), this updates "
-                "`context/workspace/<chat_id>/workspace.json` for goals and ad-hoc runs in that chat only.\n"
-                "Otherwise it queues `context/.env.pending` for restart.",
-                parse_mode="Markdown",
+                _md_to_telegram_html(
+                    f"Current: `{provider}/{model}`{extra}\n\n"
+                    "Usage: `/model <model_name>`\n"
+                    "In a **workspace** supergroup (`TELEGRAM_WORKSPACE_GROUP_IDS`), this updates "
+                    "`context/workspace/<chat_id>/workspace.json` for goals and ad-hoc runs in that chat only.\n"
+                    "Otherwise it queues `context/.env.pending` for restart."
+                ),
+                parse_mode="HTML",
             )
             return
         new_model = parts[1].strip()
@@ -4264,8 +4276,8 @@ def run_bot():
             p.write_text(json.dumps(meta, indent=2))
             bot.send_message(
                 cid,
-                f"Workspace model set to `{new_model}` (this supergroup only).",
-                parse_mode="Markdown",
+                _md_to_telegram_html(f"Workspace model set to `{new_model}` (this supergroup only)."),
+                parse_mode="HTML",
             )
             _log(f"/model: workspace {ws} -> {new_model}")
             return
@@ -4280,8 +4292,8 @@ def run_bot():
             f.write(f"{key}='{new_model}'\n")
         bot.send_message(
             cid,
-            f"Model queued: `{key}={new_model}`\nWill apply on next restart.",
-            parse_mode="Markdown",
+            _md_to_telegram_html(f"Model queued: `{key}={new_model}`\nWill apply on next restart."),
+            parse_mode="HTML",
         )
         _log(f"/model: queued {key}={new_model}")
 
@@ -4301,19 +4313,19 @@ def run_bot():
             body = f"**Environment keys** (values not shown):\n{listing}"
             if uid is not None:
                 try:
-                    bot.send_message(uid, body[:4000], parse_mode="Markdown")
-                    bot.send_message(cid, "Key list sent in **your** private chat with the bot.", parse_mode="Markdown")
+                    bot.send_message(uid, _md_to_telegram_html(body)[:4000], parse_mode="HTML")
+                    bot.send_message(cid, _md_to_telegram_html("Key list sent in **your** private chat with the bot."), parse_mode="HTML")
                     return
                 except Exception:
                     pass
-            bot.send_message(cid, body[:4000], parse_mode="Markdown")
+            bot.send_message(cid, _md_to_telegram_html(body)[:4000], parse_mode="HTML")
             return
 
         toks = rest.split(maxsplit=1)
         head = toks[0]
         if head == "-d":
             if len(toks) < 2:
-                bot.send_message(cid, "Usage: `/env -d KEY`", parse_mode="Markdown")
+                bot.send_message(cid, _md_to_telegram_html("Usage: `/env -d KEY`"), parse_mode="HTML")
                 return
             del_key = toks[1].strip().split()[0]
             try:
@@ -4327,7 +4339,7 @@ def run_bot():
             return
 
         if len(toks) < 2:
-            bot.send_message(cid, "Usage: `/env KEY VALUE` or `/env` or `/env -d KEY`", parse_mode="Markdown")
+            bot.send_message(cid, _md_to_telegram_html("Usage: `/env KEY VALUE` or `/env` or `/env -d KEY`"), parse_mode="HTML")
             return
         e_key, e_val = toks[0], toks[1]
         env_path = WORKING_DIR / ".env"
@@ -4354,7 +4366,7 @@ def run_bot():
             bot.send_message(cid, f"Failed: {str(exc)[:200]}")
             _log(f"/env set failed: {exc!s}"[:200])
             return
-        bot.send_message(cid, f"Set `{e_key}` (restart if a running process must pick it up).", parse_mode="Markdown")
+        bot.send_message(cid, _md_to_telegram_html(f"Set `{e_key}` (restart if a running process must pick it up)."), parse_mode="HTML")
         _log(f"/env set {e_key}")
 
     @bot.message_handler(commands=["bash"])
@@ -4392,7 +4404,7 @@ def run_bot():
                 body = _redact_secrets(body)[:3500]
                 header = f"$ `{command[:200]}` rc={r.returncode}\n"
                 try:
-                    bot.edit_message_text(header + f"```\n{body}\n```", cid, msg.message_id, parse_mode="Markdown")
+                    bot.edit_message_text(_md_to_telegram_html(header + f"```\n{body}\n```"), cid, msg.message_id, parse_mode="HTML")
                 except Exception:
                     bot.edit_message_text(header + body[:3800], cid, msg.message_id)
             except subprocess.TimeoutExpired:
@@ -4430,7 +4442,7 @@ def run_bot():
                 "• `/model` — per-workspace or `.env.pending`\n"
                 "• Public/workspace groups: **members** → `/arbos` … ; you → normal message or `/arbos` (reply = quote context)"
             )
-        bot.send_message(cid, txt, parse_mode="Markdown")
+        bot.send_message(cid, _md_to_telegram_html(txt), parse_mode="HTML")
 
     @bot.message_handler(commands=["arbos"])
     def handle_arbos(message):
@@ -4448,9 +4460,11 @@ def run_bot():
         if not rest.strip():
             bot.send_message(
                 cid,
-                "Utilisation : `/arbos` suivre de votre question.\n"
-                "Voix / image / fichier : joindre une **légende** qui commence par `/arbos …`.",
-                parse_mode="Markdown",
+                _md_to_telegram_html(
+                    "Utilisation : `/arbos` suivre de votre question.\n"
+                    "Voix / image / fichier : joindre une **légende** qui commence par `/arbos …`."
+                ),
+                parse_mode="HTML",
                 **tw_kw,
             )
             return
@@ -4815,9 +4829,11 @@ def run_bot():
                     kw0["message_thread_id"] = th0
                 bot.send_message(
                     cid,
-                    "Les commandes `/…` sont pour les opérateurs. "
-                    "Pour une question : `/arbos` puis votre texte.",
-                    parse_mode="Markdown",
+                    _md_to_telegram_html(
+                        "Les commandes `/…` sont pour les opérateurs. "
+                        "Pour une question : `/arbos` puis votre texte."
+                    ),
+                    parse_mode="HTML",
                     **kw0,
                 )
                 return
@@ -4826,8 +4842,8 @@ def run_bot():
                 return
             bot.send_message(
                 cid,
-                "Unknown command. Owner: `/help` lists all commands.",
-                parse_mode="Markdown",
+                _md_to_telegram_html("Unknown command. Owner: `/help` lists all commands."),
+                parse_mode="HTML",
             )
             return
 
