@@ -5815,6 +5815,10 @@ def main() -> None:
     if _ping not in ("0", "false", "no") and os.getenv("TAU_BOT_TOKEN"):
         _send_telegram_text("Restarted.")
 
+    # Clear stale restart flag from previous session to avoid ghost restart
+    if RESTART_FLAG.exists():
+        RESTART_FLAG.unlink()
+
     threading.Thread(target=_goal_manager, daemon=True).start()
     threading.Thread(target=run_bot, daemon=True).start()
 
