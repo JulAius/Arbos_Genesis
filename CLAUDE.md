@@ -40,8 +40,9 @@ context/
 │   ├── GOAL_TELEGRAM_BITTENSOR.md  # Mission template
 │   ├── FINDINGS.md  # Runtime findings (auto-incrémenté, injecté dans prompt)
 │   └── workspace.json
-├── dm/<cid>/        # DM chats (cid > 0)
-│   └── goals/<idx>/
-├── chat/            # Chat logs (global + per-user + per-group)
+├── chat/            # Chat logs + DM goals (cid > 0)
+│   ├── by_user/<uid>/  # Per-user chatlog
+│   ├── group/<cid>/    # Per-group chatlog
+│   └── <cid>/goals/<idx>/  # DM goals (workspace_id > 0)
 └── tools/           # Shared tools & data providers
 ```
