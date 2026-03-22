@@ -379,6 +379,8 @@ TELEGRAM_QA_FIXED_GOAL = os.environ.get("TELEGRAM_QA_FIXED_GOAL", "").strip().lo
 AUTO_PUSH_REMOTE = os.environ.get("AUTO_PUSH_REMOTE", "origin")
 AUTO_PUSH_BRANCH = os.environ.get("AUTO_PUSH_BRANCH", "main")
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+ARBOS_MAX_STEPS = int(os.environ.get("ARBOS_MAX_STEPS", "5"))
+ARBOS_TIMEOUT = int(os.environ.get("ARBOS_TIMEOUT", "900"))  # 15 min wall-clock
 
 _provider_lock = threading.Lock()
 _using_fallback = False
@@ -390,6 +392,7 @@ _outbox_lock = threading.Lock()
 _pending_env_lock = threading.Lock()
 _shutdown = threading.Event()
 _claude_semaphore = threading.Semaphore(MAX_CONCURRENT)
+_bot = None  # set in run_bot(), used by ephemeral goal delivery
 _step_count = 0
 _token_usage = {"input": 0, "output": 0}
 _token_lock = threading.Lock()
@@ -412,6 +415,9 @@ class GoalState:
     goal_hash: str = ""
     last_run: str = ""
     last_finished: str = ""
+    ephemeral: bool = False     # auto-cleanup after RESPONSE.md or max_steps
+    max_steps: int = 0          # 0 = unlimited
+    created_at: str = ""        # ISO timestamp for timeout
     thread: threading.Thread | None = field(default=None, repr=False)
     wake: threading.Event = field(default_factory=threading.Event, repr=False)
     stop_event: threading.Event = field(default_factory=threading.Event, repr=False)
@@ -502,6 +508,10 @@ def _serialize_goal_entry(gs: GoalState) -> dict[str, Any]:
         "last_run": gs.last_run,
         "last_finished": gs.last_finished,
     }
+    if gs.ephemeral:
+        d["ephemeral"] = True
+        d["max_steps"] = gs.max_steps
+        d["created_at"] = gs.created_at
     return d
 
 
@@ -542,6 +552,9 @@ def _load_goals_json_into(workspace_id: int, goals_map: dict[int, GoalState]):
             goal_hash=info.get("goal_hash", ""),
             last_run=info.get("last_run", ""),
             last_finished=info.get("last_finished", ""),
+            ephemeral=info.get("ephemeral", False),
+            max_steps=info.get("max_steps", 0),
+            created_at=info.get("created_at", ""),
         )
 
 
@@ -2832,6 +2845,28 @@ def _goal_loop(workspace_id: int, index: int):
 
         gs.wake.clear()
 
+        # ── Ephemeral /arbos goals: check RESPONSE.md, max_steps, timeout ──
+        if gs.ephemeral:
+            resp_file = _goal_dir(index, workspace_id) / "RESPONSE.md"
+            if resp_file.exists() and resp_file.read_text().strip():
+                _deliver_ephemeral_response(index, workspace_id)
+                _cleanup_ephemeral_goal(index, workspace_id, goals_map, gs)
+                break
+            if gs.max_steps and gs.step_count >= gs.max_steps:
+                _deliver_ephemeral_timeout(index, workspace_id, gs)
+                _cleanup_ephemeral_goal(index, workspace_id, goals_map, gs)
+                break
+            if gs.created_at:
+                try:
+                    elapsed = (datetime.now() - datetime.fromisoformat(gs.created_at)).total_seconds()
+                except ValueError:
+                    elapsed = 0
+                if elapsed > ARBOS_TIMEOUT:
+                    _deliver_ephemeral_timeout(index, workspace_id, gs)
+                    _cleanup_ephemeral_goal(index, workspace_id, goals_map, gs)
+                    break
+            continue  # no delay, no STOP/PAUSE — iterate immediately
+
         if success and GOAL_STOP_AFTER_SUCCESS:
             with _goals_lock:
                 gs.started = False
@@ -3330,6 +3365,190 @@ def _telegram_send_final_chunks(
         )
 
 
+def _create_ephemeral_arbos_goal(
+    workspace_id: int,
+    user_text: str,
+    user_label: str,
+    chat_title: str | None,
+    chat_id: int,
+    message_thread_id: int | None,
+    telegram_user_id: int | None,
+    telegram_room_id: int | None,
+) -> int:
+    """Create an ephemeral goal for /arbos: loop until RESPONSE.md or max steps."""
+    idx = int(time.time())
+
+    # Ensure unique index within the workspace
+    if workspace_id < 0:
+        gmap = _tg_goals_map(workspace_id)
+    elif workspace_id > 0:
+        gmap = _tg_dm_goals_map(workspace_id)
+    else:
+        gmap = _goals
+    while idx in gmap:
+        idx += 1
+
+    # Mission from fixed goal template
+    mission = _telegram_qa_fixed_goal_markdown(workspace_id)
+
+    # Per-user state context
+    user_state_ctx = ""
+    user_state_path: Path | None = None
+    if telegram_user_id is not None and telegram_room_id is not None:
+        user_state_path = _arbos_user_state_path(telegram_room_id, telegram_user_id)
+        if user_state_path.exists():
+            user_state_ctx = user_state_path.read_text().strip()
+
+    # State update instruction (same as _build_public_bittensor_prompt)
+    state_instruction = ""
+    if user_state_path is not None:
+        state_instruction = (
+            f"\n\n## Mise à jour de l'état utilisateur\n\n"
+            f"**Après avoir écrit RESPONSE.md**, écris (ou écrase) le fichier `{user_state_path}` avec un résumé concis "
+            f"du contexte de **{user_label}** : niveau Bittensor, sujets récurrents, préférences, points clés "
+            f"de la conversation. Garde-le court et actionnable (< 300 mots)."
+        )
+
+    room = chat_title or "Telegram"
+    goal_md = (
+        f"# Requête /arbos — {room}\n\n"
+        f"{mission}\n\n"
+        "---\n\n"
+        f"## Question de {user_label}\n\n"
+        f"{user_text}\n\n"
+        "## Instructions de résolution\n\n"
+        "Tu dois répondre à la question ci-dessus.\n\n"
+        "1. Utilise **tous** les outils : CLI (`btcli`, `agcli`), scripts Python, APIs, Chi, web\n"
+        "2. Si une approche échoue, **note-la dans STATE.md** et essaie une alternative au prochain step\n"
+        "3. Quand tu as la réponse complète, écris-la dans **RESPONSE.md** (même répertoire que GOAL.md)\n"
+        "4. RESPONSE.md = texte final envoyé tel quel dans Telegram (Markdown, **en français**, max ~4000 chars)\n"
+        "5. Si tu ne trouves pas la réponse après plusieurs tentatives, écris dans RESPONSE.md ce que tu as trouvé\n\n"
+        "## Langue\n"
+        "**Réponse obligatoire en français.** Termes techniques anglais usuels : OK.\n"
+        f"{state_instruction}"
+    )
+
+    # Seed STATE.md with user context
+    state_parts: list[str] = []
+    if user_state_ctx:
+        state_parts.append(f"## Contexte utilisateur ({user_label})\n\n{user_state_ctx}")
+    if telegram_user_id is not None:
+        hist = load_chatlog(max_chars=2000, telegram_user_id=telegram_user_id)
+        if hist:
+            state_parts.append(f"## Historique récent\n\n{hist}")
+    state_md = "\n\n".join(state_parts)
+
+    # META.json for response routing
+    meta = {
+        "chat_id": chat_id,
+        "message_thread_id": message_thread_id,
+        "user_id": telegram_user_id,
+        "user_label": user_label,
+        "room_id": telegram_room_id,
+    }
+
+    # Create goal on disk
+    gdir = _goal_dir(idx, workspace_id)
+    gdir.mkdir(parents=True, exist_ok=True)
+    _goal_file(idx, workspace_id).write_text(goal_md)
+    _state_file(idx, workspace_id).write_text(state_md)
+    _inbox_file(idx, workspace_id).write_text("")
+    _goal_runs_dir(idx, workspace_id).mkdir(parents=True, exist_ok=True)
+    (gdir / "META.json").write_text(json.dumps(meta, indent=2))
+
+    # Register and start
+    gs = GoalState(
+        index=idx,
+        summary=f"/arbos: {user_text[:80]}",
+        ephemeral=True,
+        max_steps=ARBOS_MAX_STEPS,
+        created_at=datetime.now().isoformat(),
+        started=True,
+    )
+    with _goals_lock:
+        gmap[idx] = gs
+        _save_goals(workspace_id)
+    gs.wake.set()
+    _log(f"ephemeral goal #{idx} created (ws={workspace_id}): {user_text[:80]}")
+    return idx
+
+
+def _deliver_ephemeral_response(index: int, workspace_id: int):
+    """Read RESPONSE.md + META.json from ephemeral goal dir, post answer to Telegram, log."""
+    gdir = _goal_dir(index, workspace_id)
+    response_text = (gdir / "RESPONSE.md").read_text().strip()
+    try:
+        meta = json.loads((gdir / "META.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        _log(f"ephemeral goal #{index}: META.json missing or invalid, cannot deliver")
+        return
+    chat_id = meta["chat_id"]
+    send_kw: dict[str, Any] = {}
+    th = meta.get("message_thread_id")
+    if th is not None:
+        send_kw["message_thread_id"] = th
+    uid = meta.get("user_id")
+    rid = meta.get("room_id")
+    if _bot is not None:
+        _telegram_send_final_chunks(
+            _bot, chat_id, response_text, send_kw,
+            telegram_user_id=uid,
+            telegram_shared_room_id=rid,
+        )
+    else:
+        _send_telegram_text(response_text, chat_id=chat_id)
+    _log(f"ephemeral goal #{index}: response delivered ({len(response_text)} chars)")
+
+
+def _deliver_ephemeral_timeout(index: int, workspace_id: int, gs: GoalState):
+    """Notify user that max steps/time reached; include partial STATE.md progress."""
+    gdir = _goal_dir(index, workspace_id)
+    try:
+        meta = json.loads((gdir / "META.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        _log(f"ephemeral goal #{index}: META.json missing, cannot deliver timeout")
+        return
+    sf = _state_file(index, workspace_id)
+    state_text = sf.read_text().strip()[:2000] if sf.exists() else ""
+    msg = (
+        f"Recherche interrompue après {gs.step_count} étape(s) "
+        f"sans réponse définitive."
+    )
+    if state_text:
+        msg += f"\n\n**Progrès :**\n{state_text}"
+    chat_id = meta["chat_id"]
+    send_kw: dict[str, Any] = {}
+    th = meta.get("message_thread_id")
+    if th is not None:
+        send_kw["message_thread_id"] = th
+    if _bot is not None:
+        _telegram_send_final_chunks(
+            _bot, chat_id, msg, send_kw,
+            telegram_user_id=meta.get("user_id"),
+            telegram_shared_room_id=meta.get("room_id"),
+        )
+    else:
+        _send_telegram_text(msg, chat_id=chat_id)
+    _log(f"ephemeral goal #{index}: timeout after {gs.step_count} steps")
+
+
+def _cleanup_ephemeral_goal(
+    index: int, workspace_id: int,
+    goals_map: dict[int, GoalState], gs: GoalState,
+):
+    """Stop ephemeral goal loop, remove from map, delete goal dir."""
+    import shutil
+    with _goals_lock:
+        gs.stop_event.set()
+        gs.started = False
+        goals_map.pop(index, None)
+        _save_goals(workspace_id)
+    gdir = _goal_dir(index, workspace_id)
+    if gdir.exists():
+        shutil.rmtree(gdir, ignore_errors=True)
+    _log(f"ephemeral goal #{index} cleaned up (ws={workspace_id})")
+
+
 def _arbos_user_state_path(group_id: int, user_id: int) -> Path:
     """Path to per-user STATE.md within a Telegram group."""
     p = CHATLOG_DIR / "group" / str(group_id) / "state" / f"{user_id}.md"
@@ -3763,6 +3982,8 @@ def run_bot():
 
     import telebot
     bot = telebot.TeleBot(token)
+    global _bot
+    _bot = bot
 
     public_chat_ids = _telegram_public_chat_ids_from_env()
     workspace_group_ids = _telegram_workspace_group_ids_from_env()
@@ -3953,7 +4174,8 @@ def run_bot():
             status = _goal_status_label(gs)
             last = _format_last_time(gs.last_finished)
             delay_str = f" delay:{gs.delay}s" if gs.delay else ""
-            lines.append(f"#{idx} [{status}]{delay_str} last:{last} - {gs.summary}")
+            eph_tag = " [eph]" if gs.ephemeral else ""
+            lines.append(f"#{idx} [{status}]{eph_tag}{delay_str} last:{last} - {gs.summary}")
         bot.send_message(cid, "\n".join(lines))
 
     @bot.message_handler(commands=["status"])
@@ -4598,35 +4820,37 @@ def run_bot():
                 telegram_user_id=uid,
                 telegram_room_id=rid,
             )
+            def _run():
+                response = run_agent_streaming(
+                    bot,
+                    prompt,
+                    cid,
+                    message_thread_id=th,
+                    workspace_id=tw,
+                    telegram_log_user_id=uid,
+                    telegram_log_room_id=rid,
+                )
+                log_chat(
+                    "bot",
+                    response[:1000],
+                    telegram_user_id=uid,
+                    telegram_shared_room_id=rid,
+                )
+                _process_pending_env()
+
+            threading.Thread(target=_run, daemon=True).start()
         else:
-            prompt = _build_public_bittensor_prompt(
-                rest,
-                who,
-                message.chat.title,
+            bot.send_message(cid, "🔄 Recherche en cours…", **tw_kw)
+            _create_ephemeral_arbos_goal(
+                workspace_id=tw,
+                user_text=rest,
+                user_label=who,
+                chat_title=message.chat.title,
+                chat_id=cid,
+                message_thread_id=th,
                 telegram_user_id=uid,
                 telegram_room_id=rid,
-                workspace_id=tw,
             )
-
-        def _run():
-            response = run_agent_streaming(
-                bot,
-                prompt,
-                cid,
-                message_thread_id=th,
-                workspace_id=tw,
-                telegram_log_user_id=uid,
-                telegram_log_room_id=rid,
-            )
-            log_chat(
-                "bot",
-                response[:1000],
-                telegram_user_id=uid,
-                telegram_shared_room_id=rid,
-            )
-            _process_pending_env()
-
-        threading.Thread(target=_run, daemon=True).start()
 
     @bot.message_handler(commands=["restart"])
     def handle_restart(message):
@@ -4727,39 +4951,44 @@ def run_bot():
                 telegram_user_id=uid,
                 telegram_room_id=rid,
             )
+            def _run():
+                th = _forum_reply_thread(message)
+                response = run_agent_streaming(
+                    bot,
+                    prompt,
+                    cid,
+                    message_thread_id=th,
+                    workspace_id=tw,
+                    telegram_log_user_id=uid,
+                    telegram_log_room_id=rid,
+                )
+                log_chat(
+                    "bot",
+                    response[:1000],
+                    telegram_user_id=uid,
+                    telegram_shared_room_id=rid,
+                )
+                _process_pending_env()
+
+            threading.Thread(target=_run, daemon=True).start()
         else:
             u = message.from_user
             who = f"@{u.username}" if u.username else (u.first_name or str(uid))
-            prompt = _build_public_bittensor_prompt(
-                user_text,
-                who,
-                message.chat.title,
+            th = _forum_reply_thread(message)
+            tw_kw2: dict[str, Any] = {}
+            if th is not None:
+                tw_kw2["message_thread_id"] = th
+            bot.send_message(cid, "🔄 Recherche en cours…", **tw_kw2)
+            _create_ephemeral_arbos_goal(
+                workspace_id=tw,
+                user_text=user_text,
+                user_label=who,
+                chat_title=message.chat.title,
+                chat_id=cid,
+                message_thread_id=th,
                 telegram_user_id=uid,
                 telegram_room_id=rid,
-                workspace_id=tw,
             )
-
-        def _run():
-            th = _forum_reply_thread(message)
-            tw_run = cid if cid in workspace_group_ids else 0
-            response = run_agent_streaming(
-                bot,
-                prompt,
-                cid,
-                message_thread_id=th,
-                workspace_id=tw_run,
-                telegram_log_user_id=uid,
-                telegram_log_room_id=rid,
-            )
-            log_chat(
-                "bot",
-                response[:1000],
-                telegram_user_id=uid,
-                telegram_shared_room_id=rid,
-            )
-            _process_pending_env()
-
-        threading.Thread(target=_run, daemon=True).start()
 
     @bot.message_handler(content_types=["document"])
     def handle_document(message):
@@ -4819,35 +5048,41 @@ def run_bot():
                 telegram_user_id=uid,
                 telegram_room_id=rid,
             )
+            def _run():
+                response = run_agent_streaming(
+                    bot, prompt, cid,
+                    message_thread_id=_forum_reply_thread(message),
+                    workspace_id=tw,
+                    telegram_log_user_id=uid,
+                    telegram_log_room_id=rid,
+                )
+                log_chat(
+                    "bot",
+                    response[:1000],
+                    telegram_user_id=uid,
+                    telegram_shared_room_id=rid,
+                )
+                _process_pending_env()
+
+            threading.Thread(target=_run, daemon=True).start()
         else:
             u = message.from_user
             who = f"@{u.username}" if u.username else (u.first_name or str(uid))
-            prompt = _build_public_bittensor_prompt(
-                user_text,
-                who,
-                message.chat.title,
+            th = _forum_reply_thread(message)
+            tw_kw2: dict[str, Any] = {}
+            if th is not None:
+                tw_kw2["message_thread_id"] = th
+            bot.send_message(cid, "🔄 Recherche en cours…", **tw_kw2)
+            _create_ephemeral_arbos_goal(
+                workspace_id=tw,
+                user_text=user_text,
+                user_label=who,
+                chat_title=message.chat.title,
+                chat_id=cid,
+                message_thread_id=th,
                 telegram_user_id=uid,
                 telegram_room_id=rid,
-                workspace_id=tw,
             )
-
-        def _run():
-            response = run_agent_streaming(
-                bot, prompt, cid,
-                message_thread_id=_forum_reply_thread(message),
-                workspace_id=tw,
-                telegram_log_user_id=uid,
-                telegram_log_room_id=rid,
-            )
-            log_chat(
-                "bot",
-                response[:1000],
-                telegram_user_id=uid,
-                telegram_shared_room_id=rid,
-            )
-            _process_pending_env()
-
-        threading.Thread(target=_run, daemon=True).start()
 
     @bot.message_handler(content_types=["photo"])
     def handle_photo(message):
@@ -4895,35 +5130,41 @@ def run_bot():
                 telegram_user_id=uid,
                 telegram_room_id=rid,
             )
+            def _run():
+                response = run_agent_streaming(
+                    bot, prompt, cid,
+                    message_thread_id=_forum_reply_thread(message),
+                    workspace_id=tw,
+                    telegram_log_user_id=uid,
+                    telegram_log_room_id=rid,
+                )
+                log_chat(
+                    "bot",
+                    response[:1000],
+                    telegram_user_id=uid,
+                    telegram_shared_room_id=rid,
+                )
+                _process_pending_env()
+
+            threading.Thread(target=_run, daemon=True).start()
         else:
             u = message.from_user
             who = f"@{u.username}" if u.username else (u.first_name or str(uid))
-            prompt = _build_public_bittensor_prompt(
-                user_text,
-                who,
-                message.chat.title,
+            th = _forum_reply_thread(message)
+            tw_kw2: dict[str, Any] = {}
+            if th is not None:
+                tw_kw2["message_thread_id"] = th
+            bot.send_message(cid, "🔄 Recherche en cours…", **tw_kw2)
+            _create_ephemeral_arbos_goal(
+                workspace_id=tw,
+                user_text=user_text,
+                user_label=who,
+                chat_title=message.chat.title,
+                chat_id=cid,
+                message_thread_id=th,
                 telegram_user_id=uid,
                 telegram_room_id=rid,
-                workspace_id=tw,
             )
-
-        def _run():
-            response = run_agent_streaming(
-                bot, prompt, cid,
-                message_thread_id=_forum_reply_thread(message),
-                workspace_id=tw,
-                telegram_log_user_id=uid,
-                telegram_log_room_id=rid,
-            )
-            log_chat(
-                "bot",
-                response[:1000],
-                telegram_user_id=uid,
-                telegram_shared_room_id=rid,
-            )
-            _process_pending_env()
-
-        threading.Thread(target=_run, daemon=True).start()
 
     @bot.message_handler(func=lambda m: True)
     def handle_message(message):
