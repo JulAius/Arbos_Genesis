@@ -112,22 +112,11 @@ YAML Bittensor curé sous **`external/Chi/knowledge/`** ([unconst/Chi](https://g
 
 **Sécurité :** coldkeys, mnémoniques, mots de passe wallet = secrets (mêmes règles que `.env`). Ne jamais les écrire dans `STATE.md`, commits, ou artefacts Telegram.
 
-**Auto-amélioration :** quand tu découvres un workaround technique (parsing, auth, flag CLI, comportement inattendu…), **ajoute une entrée dans `## Connaissances techniques` en bas de ce fichier**. C'est la seule section que tu as le droit de modifier. Format : une ligne par finding, préfixée par `-`.
+**Auto-amélioration :** quand tu découvres un workaround technique (parsing, auth, flag CLI, endpoint, comportement inattendu…), **ajoute une entrée** dans le fichier `FINDINGS.md` du workspace (`context/workspace/-5097366430/FINDINGS.md`). Format : une ligne par finding, préfixée par `- `. Ce fichier est lu automatiquement par **tous** les agents (Cursor, Claude Code, Codex, OpenCode) à chaque step. Pour les goals éphémères (`/arbos`), noter dans `STATE.md` sous `## Connaissances techniques` — les findings seront automatiquement récoltés et ajoutés au FINDINGS.md.
 
 **Note runtime :** les membres en salon configuré passent par le flux **`/arbos`** (un run agent par message) avec le même **fond de mission** que ce fichier. Ce texte alimente **`context/goals/1/GOAL.md`** lorsque **`TELEGRAM_QA_FIXED_GOAL`** est actif, pour aligner la boucle Ralph (`/start 1`) sur cette mission unique.
 
 ## Connaissances techniques
 
-> Section auto-incrémentée par le bot. Ne pas supprimer ce header.
-
-- `agcli` mélange `WARN ...` et JSON sur stdout → parser avec `output[output.index('{'):]` ou `jq`, jamais `json.loads(output)` directement.
-- Auth taostats/taomarketcap : `Authorization: <key>` sans préfixe Bearer (Bearer → 401).
-- taomarketcap : le champ prix est `current_price` (pas `usd_quote.price_usd`). L'endpoint validateurs est `/validators/full/` (pas `/validators/` → 405).
-- Pagination taostats : `--page` / `--limit` → réponse sous clé `data`. Pagination taomarketcap : `--limit` / `--offset` → réponse sous clé `results`.
-- Taostats endpoints payants (plan Pro requis) : `accounting`, `tax-report`, `dtao-portfolio`, `dtao-liquidity-*`, `otc-*`. Sur plan Free : 403 Forbidden. Préférer les endpoints gratuits (`validators`, `subnets`, `metagraph`, `price`, `dtao-pools`, `dtao-stake`, `dtao-trades`).
-- Taostats rate limit free tier : ~10 req/s. Ajouter `time.sleep(0.15)` entre les appels en boucle pour éviter les 429.
-- Taostats endpoint pattern : `/api/{resource}/{scope}/v1` (version à la FIN, pas au début). Ex: `/api/subnet/latest/v1`, pas `/v1/subnet/latest`.
-- taomarketcap endpoint pattern : `/public/v1/{resource}/` (version au DÉBUT). Ex: `/public/v1/subnets/`.
-- Si un endpoint renvoie 403 (plan insuffisant), ne pas réessayer — noter dans STATE.md et utiliser un endpoint alternatif ou `btcli`/`agcli` comme fallback.
-- `taostats dtao-slippage <netuid> <amount>` : utile pour estimer le coût d'un swap dTAO avant achat. Gratuit.
-- `taomarketcap analytics-chain --span 7d` : résumé chaîne (volume, buys, etc.) sur 7 jours en un seul appel. Gratuit.
+> Voir `FINDINGS.md` dans ce workspace pour la liste complète des findings techniques.
+> Ce fichier est injecté automatiquement dans le prompt de chaque agent.

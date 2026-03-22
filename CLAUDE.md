@@ -1,12 +1,20 @@
 # Arbos Bittensor — Instructions Claude Code
 
 ## Projet
-Bot Telegram Bittensor dans `arbos.py` (~5500 lignes). Architecture : monolith avec goal system, workspace isolation, DM isolation, ephemeral goals.
+Bot Telegram Bittensor dans `arbos.py` (~5700 lignes). Architecture : monolith avec goal system, workspace isolation, DM isolation, ephemeral goals.
 
-## Auto-amélioration
-Ce projet utilise un système de **findings techniques persistants** dans `.claude/FINDINGS.md`.
+## Auto-amélioration — Deux niveaux
 
-**IMPORTANT :** Avant toute modification de `arbos.py`, lis `.claude/FINDINGS.md` pour connaître les bugs connus et les patterns à respecter. Après toute modification significative, mets à jour FINDINGS.md (nouveaux bugs trouvés, bugs fixés marqués `[FIXED]`, patterns appris).
+### 1. Findings opérateur (`.claude/FINDINGS.md`)
+Bugs, patterns, fixes du code `arbos.py`. Utilisé par les skills Claude Code (`/audit`, `/fix`, etc.).
+
+### 2. Findings runtime (`context/workspace/<cid>/FINDINGS.md`)
+Connaissances techniques découvertes par le bot pendant ses interactions (parsing, auth, endpoints, workarounds).
+- **Injecté automatiquement** dans le prompt de CHAQUE agent (Cursor, Claude Code, Codex, OpenCode) via `load_prompt()`
+- **Auto-incrémenté** : les ephemeral goals `/arbos` écrivent dans STATE.md → `_harvest_ephemeral_knowledge()` dédup + append au FINDINGS.md du workspace
+- **Format** : une ligne `- finding` par entrée
+
+**IMPORTANT :** Quand tu découvres un workaround technique, ajoute-le dans le `FINDINGS.md` du workspace concerné, PAS dans `.claude/FINDINGS.md`.
 
 ## Skills disponibles
 - `/audit` — Audit approfondi, compare avec FINDINGS.md, met à jour
@@ -29,7 +37,8 @@ context/
 ├── goals/           # Legacy CLI goals (workspace_id=0)
 ├── workspace/<cid>/ # Workspace groups (cid < 0)
 │   ├── goals/<idx>/ # GOAL.md, STATE.md, INBOX.md, runs/
-│   ├── GOAL_TELEGRAM_BITTENSOR.md
+│   ├── GOAL_TELEGRAM_BITTENSOR.md  # Mission template
+│   ├── FINDINGS.md  # Runtime findings (auto-incrémenté, injecté dans prompt)
 │   └── workspace.json
 ├── dm/<cid>/        # DM chats (cid > 0)
 │   └── goals/<idx>/

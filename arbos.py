@@ -471,6 +471,15 @@ def _state_file(index: int, workspace_id: int = 0) -> Path:
     return _goal_dir(index, workspace_id) / "STATE.md"
 
 
+def _workspace_findings_path(workspace_id: int) -> Path | None:
+    """Path to workspace-level FINDINGS.md (agent-agnostic knowledge base)."""
+    if workspace_id < 0:
+        return WORKSPACES_DIR / str(workspace_id) / "FINDINGS.md"
+    elif workspace_id > 0:
+        return DM_GOALS_DIR / str(workspace_id) / "FINDINGS.md"
+    return None
+
+
 def _inject_state_crash(index: int, workspace_id: int, step: int, exc: Exception | None):
     """Append crash/failure info to STATE.md so the next step knows what went wrong."""
     try:
@@ -802,6 +811,13 @@ def load_prompt(goal_index: int, consume_inbox: bool = False, goal_step: int = 0
             parts.append(
                 f"{header}\n\n{goal_text}\n\nYour context files are in {rel} (STATE.md, INBOX.md, runs/).",
             )
+    # Inject workspace-level findings (agent-agnostic: Cursor, Claude Code, Codex, OpenCode)
+    findings_path = _workspace_findings_path(workspace_id)
+    if findings_path and findings_path.is_file():
+        findings_text = findings_path.read_text().strip()
+        if findings_text:
+            parts.append(f"## Connaissances techniques (workspace)\n\n{findings_text}")
+
     sf = _state_file(goal_index, workspace_id)
     if sf.exists():
         state_text = sf.read_text().strip()
@@ -3754,15 +3770,15 @@ def _deliver_ephemeral_crash(index: int, workspace_id: int, gs: GoalState, exc: 
 
 
 def _harvest_ephemeral_knowledge(index: int, workspace_id: int):
-    """Extract technical findings from ephemeral goal and append to workspace template.
+    """Extract technical findings from ephemeral goal and append to workspace FINDINGS.md.
 
-    Reads the goal's GOAL.md for any agent-added '## Connaissances techniques' entries
-    and the STATE.md for '## Findings' or '## Connaissances' sections.
-    Deduplicates against existing entries in the template before appending.
+    Reads the goal's STATE.md for '## Connaissances techniques' / '## Findings' sections
+    and optional KNOWLEDGE.md file.
+    Deduplicates against existing entries in workspace FINDINGS.md before appending.
     """
     gdir = _goal_dir(index, workspace_id)
-    template_path = _telegram_qa_goal_template_path(workspace_id)
-    if not template_path.is_file():
+    findings_path = _workspace_findings_path(workspace_id)
+    if not findings_path:
         return
 
     # Collect new findings from ephemeral goal files
@@ -3797,42 +3813,38 @@ def _harvest_ephemeral_knowledge(index: int, workspace_id: int):
     if not new_findings:
         return
 
-    # Read existing template and extract current findings for dedup
-    template_text = template_path.read_text()
+    # Read existing findings for dedup
     existing_lower = set()
-    in_ct = False
-    for line in template_text.splitlines():
-        if line.strip().startswith("## Connaissances techniques"):
-            in_ct = True
-            continue
-        if line.strip().startswith("## "):
-            in_ct = False
-        if in_ct and line.strip().startswith("- "):
-            # Normalize for dedup: lowercase, strip punctuation
-            existing_lower.add(line.strip().lower().rstrip("."))
+    if findings_path.is_file():
+        for line in findings_path.read_text().splitlines():
+            if line.strip().startswith("- "):
+                existing_lower.add(line.strip().lower().rstrip("."))
 
-    # Filter out duplicates (fuzzy: check if core content already present)
+    # Filter out duplicates (fuzzy: exact match + substring match)
     truly_new = []
     for f in new_findings:
         normalized = f.lower().rstrip(".")
         if normalized not in existing_lower:
-            # Also check substring match (if existing entry contains the new one)
             if not any(normalized[2:] in ex for ex in existing_lower):
                 truly_new.append(f)
 
     if not truly_new:
         return
 
-    # Append to template
-    if "## Connaissances techniques" not in template_text:
-        template_text = template_text.rstrip() + "\n\n## Connaissances techniques\n\n> Section auto-incrémentée par le bot. Ne pas supprimer ce header.\n\n"
+    # Ensure FINDINGS.md exists with header
+    if not findings_path.is_file():
+        findings_path.parent.mkdir(parents=True, exist_ok=True)
+        findings_path.write_text(
+            "# Connaissances techniques — Workspace\n\n"
+            "> Fichier auto-incrémenté par le bot. Chaque agent le lit automatiquement via le prompt.\n"
+            "> Format : une ligne par finding, préfixée par `- `.\n\n"
+        )
 
-    # Append new findings at the end of the file
-    addition = "\n".join(truly_new) + "\n"
-    template_text = template_text.rstrip() + "\n" + addition
+    # Append new findings
+    with open(findings_path, "a", encoding="utf-8") as f:
+        f.write("\n".join(truly_new) + "\n")
 
-    template_path.write_text(template_text)
-    _log(f"ephemeral goal #{index}: harvested {len(truly_new)} new findings into template")
+    _log(f"ephemeral goal #{index}: harvested {len(truly_new)} new findings into workspace FINDINGS.md")
 
 
 def _cleanup_ephemeral_goal(
