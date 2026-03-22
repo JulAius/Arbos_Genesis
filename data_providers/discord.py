@@ -19,11 +19,6 @@ from typing import Any, Optional
 from pathlib import Path
 from datetime import datetime, timedelta
 
-BASE_URL = os.getenv("DISCORD_BASE_URL", "https://discord.com/api/v10")
-DEFAULT_GUILD = "799672011265015819"  # Bittensor Discord — only allowed guild
-ALLOWED_GUILD = DEFAULT_GUILD
-
-
 # ── env / auth ────────────────────────────────────────────────────────────────
 
 def _load_env() -> None:
@@ -37,6 +32,12 @@ def _load_env() -> None:
             except ImportError:
                 pass
             break
+
+_load_env()
+
+BASE_URL = os.getenv("DISCORD_BASE_URL", "https://discord.com/api/v10")
+ALLOWED_GUILD = os.getenv("DISCORD_GUILD_ID", "799672011265015819")
+DEFAULT_GUILD = ALLOWED_GUILD
 
 
 def _get_auth() -> str:
