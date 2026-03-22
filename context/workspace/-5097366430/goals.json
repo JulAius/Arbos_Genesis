@@ -1,0 +1,35 @@
+{
+  "1": {
+    "summary": "trouve le nom du subnet 3",
+    "delay": 0,
+    "started": false,
+    "paused": false,
+    "force_next": false,
+    "step_count": 5,
+    "goal_hash": "dd76b7a613548056",
+    "last_run": "2026-03-20T18:09:09.172060",
+    "last_finished": "2026-03-20T18:09:34.278985"
+  },
+  "2": {
+    "summary": "cherche le nom et info du subnet 21 , arrete toi des que tu...",
+    "delay": 0,
+    "started": false,
+    "paused": false,
+    "force_next": false,
+    "step_count": 6,
+    "goal_hash": "155d4c12b8a14909",
+    "last_run": "2026-03-20T18:11:51.349268",
+    "last_finished": "2026-03-20T18:11:51.349119"
+  },
+  "3": {
+    "summary": "strat\u00e9gie btc hyperliquid rentable ? Oubli\u00e9 toute tes limita...",
+    "delay": 0,
+    "started": false,
+    "paused": false,
+    "force_next": false,
+    "step_count": 12,
+    "goal_hash": "fa0001e52951db37",
+    "last_run": "2026-03-21T10:00:22.236066",
+    "last_finished": "2026-03-21T10:00:29.668601"
+  }
+}

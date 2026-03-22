@@ -1,0 +1,163 @@
+[
+  {
+    "max_implied_prob": 0.9975,
+    "leading_outcome": "No",
+    "question": "Will Nate Ament be the first pick in the 2026 NBA draft?",
+    "slug": "will-nate-ament-be-the-first-pick-in-the-2026-nba-draft",
+    "liquidity": 1285.39384,
+    "volume24hr": 10.0,
+    "competitive": 0.8015991903848178,
+    "end": "2026-06-25",
+    "condition_id": "0x9058616cdf098ebf0cfa084ef0e1e713d3a4a3673ff0dace425601af18036454",
+    "gamma_market_id": "1066084",
+    "event_slugs": [
+      "2026-nba-draft-1st-overall-pick"
+    ],
+    "primary_event_slug": "2026-nba-draft-1st-overall-pick",
+    "url_market": "https://polymarket.com/market/will-nate-ament-be-the-first-pick-in-the-2026-nba-draft",
+    "url_event": "https://polymarket.com/event/2026-nba-draft-1st-overall-pick",
+    "leading_clob_token_id": "107728416261207900907069657732616040445373106618328741738622549530167757935897",
+    "best_bid": 0.002,
+    "best_ask": 0.003,
+    "spread": 0.001,
+    "gross_return_if_win_approx": 0.0025062656641603475
+  },
+  {
+    "max_implied_prob": 0.9975,
+    "leading_outcome": "No",
+    "question": "Will Tounde Yessoufou be the first pick in the 2026 NBA draft?",
+    "slug": "will-tounde-yessoufou-be-the-first-pick-in-the-2026-nba-draft",
+    "liquidity": 621.13698,
+    "volume24hr": 10.0,
+    "competitive": 0.8015991903848178,
+    "end": "2026-06-25",
+    "condition_id": "0x369971c8858007775a0f11359f0e493eb015c0fac52296b13d27c8db0cd3bc76",
+    "gamma_market_id": "1066087",
+    "event_slugs": [
+      "2026-nba-draft-1st-overall-pick"
+    ],
+    "primary_event_slug": "2026-nba-draft-1st-overall-pick",
+    "url_market": "https://polymarket.com/market/will-tounde-yessoufou-be-the-first-pick-in-the-2026-nba-draft",
+    "url_event": "https://polymarket.com/event/2026-nba-draft-1st-overall-pick",
+    "leading_clob_token_id": "33449209220041389193497930334783548112452579762749433615960265920742512821023",
+    "best_bid": 0.001,
+    "best_ask": 0.004,
+    "spread": 0.003,
+    "gross_return_if_win_approx": 0.0025062656641603475
+  },
+  {
+    "max_implied_prob": 0.9965,
+    "leading_outcome": "No",
+    "question": "Will Jayden Quaintance be the first pick in the 2026 NBA draft?",
+    "slug": "will-jayden-quaintance-be-the-first-pick-in-the-2026-nba-draft",
+    "liquidity": 1043.4948,
+    "volume24hr": 10.0,
+    "competitive": 0.8022384055993032,
+    "end": "2026-06-25",
+    "condition_id": "0xba29570f864e26b576540c16e298dcd342a4c1f6341d2226cd16ec4661864358",
+    "gamma_market_id": "1066086",
+    "event_slugs": [
+      "2026-nba-draft-1st-overall-pick"
+    ],
+    "primary_event_slug": "2026-nba-draft-1st-overall-pick",
+    "url_market": "https://polymarket.com/market/will-jayden-quaintance-be-the-first-pick-in-the-2026-nba-draft",
+    "url_event": "https://polymarket.com/event/2026-nba-draft-1st-overall-pick",
+    "leading_clob_token_id": "96627514415039140174423757593773040971525311373678508785789773165359912246440",
+    "best_bid": 0.002,
+    "best_ask": 0.005,
+    "spread": 0.003,
+    "gross_return_if_win_approx": 0.0035122930255895106
+  },
+  {
+    "max_implied_prob": 0.9965,
+    "leading_outcome": "No",
+    "question": "Will Koa Peat be the first pick in the 2026 NBA draft?",
+    "slug": "will-koa-peat-be-the-first-pick-in-the-2026-nba-draft",
+    "liquidity": 1027.97699,
+    "volume24hr": 10.0,
+    "competitive": 0.8022384055993032,
+    "end": "2026-06-25",
+    "condition_id": "0xaa085ad4726ceb5a6315dd0c0d1922bb4dd3de69af5b27b0e632b2e0ebfa2d23",
+    "gamma_market_id": "1066083",
+    "event_slugs": [
+      "2026-nba-draft-1st-overall-pick"
+    ],
+    "primary_event_slug": "2026-nba-draft-1st-overall-pick",
+    "url_market": "https://polymarket.com/market/will-koa-peat-be-the-first-pick-in-the-2026-nba-draft",
+    "url_event": "https://polymarket.com/event/2026-nba-draft-1st-overall-pick",
+    "leading_clob_token_id": "82039015975897432442094887644274170643601076032483337073560908706173304432599",
+    "best_bid": 0.002,
+    "best_ask": 0.005,
+    "spread": 0.003,
+    "gross_return_if_win_approx": 0.0035122930255895106
+  },
+  {
+    "max_implied_prob": 0.996,
+    "leading_outcome": "No",
+    "question": "Will Caleb Wilson be the first pick in the 2026 NBA draft?",
+    "slug": "will-caleb-wilson-be-the-first-pick-in-the-2026-nba-draft",
+    "liquidity": 1119.05924,
+    "volume24hr": 10.0,
+    "competitive": 0.8025579125789717,
+    "end": "2026-06-25",
+    "condition_id": "0xe28c0e484cd0707449bb2159b48c59f54cee9990525557dba6247948d19437ed",
+    "gamma_market_id": "1066082",
+    "event_slugs": [
+      "2026-nba-draft-1st-overall-pick"
+    ],
+    "primary_event_slug": "2026-nba-draft-1st-overall-pick",
+    "url_market": "https://polymarket.com/market/will-caleb-wilson-be-the-first-pick-in-the-2026-nba-draft",
+    "url_event": "https://polymarket.com/event/2026-nba-draft-1st-overall-pick",
+    "leading_clob_token_id": "5583791690678213553382162193222641452539581462837792382846876097172987944808",
+    "best_bid": 0.002,
+    "best_ask": 0.006,
+    "spread": 0.004,
+    "gross_return_if_win_approx": 0.004016064257028116
+  },
+  {
+    "max_implied_prob": 0.9955,
+    "leading_outcome": "No",
+    "question": "Will Mikel Brown Jr. be the first pick in the 2026 NBA draft?",
+    "slug": "will-mikel-brown-jr-be-the-first-pick-in-the-2026-nba-draft",
+    "liquidity": 1090.14754,
+    "volume24hr": 10.0,
+    "competitive": 0.8028773518535728,
+    "end": "2026-06-25",
+    "condition_id": "0x951732f4750d0ff0f95122976a309292707449a0de6f9bf2c5f1dc78260572c2",
+    "gamma_market_id": "1066085",
+    "event_slugs": [
+      "2026-nba-draft-1st-overall-pick"
+    ],
+    "primary_event_slug": "2026-nba-draft-1st-overall-pick",
+    "url_market": "https://polymarket.com/market/will-mikel-brown-jr-be-the-first-pick-in-the-2026-nba-draft",
+    "url_event": "https://polymarket.com/event/2026-nba-draft-1st-overall-pick",
+    "leading_clob_token_id": "81292380378764406708344179098107372202657516085312479246444611493193952018583",
+    "best_bid": 0.003,
+    "best_ask": 0.006,
+    "spread": 0.003,
+    "gross_return_if_win_approx": 0.00452034153691607
+  },
+  {
+    "max_implied_prob": 0.853,
+    "leading_outcome": "No",
+    "question": "Will Cameron Boozer be the first pick in the 2026 NBA draft?",
+    "slug": "will-cameron-boozer-be-the-first-pick-in-the-2026-nba-draft",
+    "liquidity": 1521.1087,
+    "volume24hr": 10.0,
+    "competitive": 0.8891979345710376,
+    "end": "2026-06-25",
+    "condition_id": "0xcccd3888aa379e8ef671ecf2e02b33cbccc6b54ddb1c6cc4f0f28c77ede6f789",
+    "gamma_market_id": "1066080",
+    "event_slugs": [
+      "2026-nba-draft-1st-overall-pick"
+    ],
+    "primary_event_slug": "2026-nba-draft-1st-overall-pick",
+    "url_market": "https://polymarket.com/market/will-cameron-boozer-be-the-first-pick-in-the-2026-nba-draft",
+    "url_event": "https://polymarket.com/event/2026-nba-draft-1st-overall-pick",
+    "leading_clob_token_id": "27186825448281912377549285267678665429040855346605857916194405296090532908896",
+    "best_bid": 0.104,
+    "best_ask": 0.19,
+    "spread": 0.086,
+    "gross_return_if_win_approx": 0.17233294255568585
+  }
+]

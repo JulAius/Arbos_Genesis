@@ -1,0 +1,24 @@
+{
+  "1": {
+    "summary": "repondre avec precision sur environnement bittensor dans un...",
+    "delay": 0,
+    "started": false,
+    "paused": false,
+    "force_next": false,
+    "step_count": 14,
+    "goal_hash": "336201fa661b32da",
+    "last_run": "2026-03-20T18:11:05.177266",
+    "last_finished": "2026-03-20T18:12:55.133234"
+  },
+  "2": {
+    "summary": "connecte toi a polymarket pour trouver des opportunit\u00e9 de pr...",
+    "delay": 0,
+    "started": false,
+    "paused": false,
+    "force_next": false,
+    "step_count": 5,
+    "goal_hash": "b360419f97669e2a",
+    "last_run": "2026-03-22T12:17:43.620849",
+    "last_finished": "2026-03-22T12:18:32.884682"
+  }
+}

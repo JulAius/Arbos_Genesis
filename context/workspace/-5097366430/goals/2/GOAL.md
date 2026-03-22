@@ -1,0 +1,1 @@
+cherche le nom et info du subnet 21 , arrete toi des que tu a trouvé les infos

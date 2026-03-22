@@ -1,0 +1,132 @@
+MODE BURN (RecycleOrBurn = Burn):
+0	root
+1	Apex
+2	DSperse
+3	τemplar
+4	Targon
+5	Hone
+6	Numinous
+8	Vanta
+9	iota
+10	Swap
+11	TrajectoryRL
+12	Compute Horde
+13	Data Universe
+14	TAOHash
+15	deval
+16	BitAds
+17	404—GEN
+18	Zeus
+19	blockmachine
+20	GroundLayer
+21	OMEGA.inc: The Awakening
+22	Desearch
+23	Trishool
+24	Quasar
+25	Mainframe
+26	Kinitro
+27	Nodexo
+28	oracle
+29	Coldint
+30	Pending
+31	Halftime
+32	ItsAI
+33	ReadyAI
+35	Cartha
+36	Web Agents - Autoppia
+37	Aurelius
+38	colosseum
+39	basilica
+40	Chunking
+41	Almanac
+42	Gopher
+43	Graphite
+44	Score
+45	Talisman AI
+46	RESI
+47	EvolAI
+48	Quantum Compute
+49	Nepher Robotics
+50	Synth
+51	lium.io
+52	Dojo
+53	EfficientFrontier
+54	Yanez MIID
+55	NIOME
+56	Gradients
+57	Sparket.AI
+58	Handshake
+59	Babelbit
+60	Bitsec.ai
+61	RedTeam
+63	Quantum Innovate
+64	Chutes
+65	TAO Private Network
+66	AlphaCore
+67	ta
+68	NOVA
+69	ain
+70	ghayn
+71	Leadpoet
+72	StreetVision by NATIX
+73	MetaHash
+75	Hippius
+76	nun
+77	Liquidity
+78	Loosh
+79	MVTRX
+80	dogelayer
+81	grail
+82	Hermes
+83	CliqueAI
+84	ChipForge (Tatsu)
+85	Vidaio
+86	⚒
+87	Luminar Network
+88	Investing
+89	InfiniteHash
+90	ogham
+91	Bitstarter #1
+92	LUCID
+93	Bitcast
+94	Bitsota
+95	nion
+96	X
+97	Constantinople
+98	ForeverMoney
+99	Leoma
+100	Plaτform
+101	eni
+102	Vocence
+103	Djinn
+105	Beam
+106	VoidAI
+107	Minos
+108	TalkHead
+109	Reserved
+110	Rich Kids of TAO
+111	oneoneone
+112	minotaur
+113	TensorUSD
+114	SOMA
+115	HashiChain
+116	TaoLend
+118	HODL ETF
+119	Satori
+120	Affine
+121	sundae_bar
+122	Bitrecs
+123	MANTIS
+124	Swarm
+125	8 Ball
+126	Poker44
+127	Astrid
+128	ByteLeap
+
+MODE RECYCLE (RecycleOrBurn = Recycle):
+7	subvortex
+34	BitMind
+62	Ridges
+74	Gittensor
+104	for sale (burn to uid1)
+117	BrainPlay

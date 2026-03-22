@@ -1,0 +1,785 @@
+{
+  "network": "finney",
+  "criteria": {
+    "miner": "validator_permit == false",
+    "remunerated": "emission > 0",
+    "metric_distinct_coldkeys": "unique coldkey among remunerated miners",
+    "validators_vtrust": "validator_permit == true AND validator_trust > 0.98"
+  },
+  "sorted_by_distinct_coldkeys_desc": [
+    {
+      "netuid": 82,
+      "distinct_miner_coldkeys_emission": 199,
+      "miner_slots_emission_gt0": 246,
+      "validators_vtrust_gt_0_98": 1
+    },
+    {
+      "netuid": 6,
+      "distinct_miner_coldkeys_emission": 152,
+      "miner_slots_emission_gt0": 202,
+      "validators_vtrust_gt_0_98": 11
+    },
+    {
+      "netuid": 88,
+      "distinct_miner_coldkeys_emission": 146,
+      "miner_slots_emission_gt0": 156,
+      "validators_vtrust_gt_0_98": 12
+    },
+    {
+      "netuid": 78,
+      "distinct_miner_coldkeys_emission": 116,
+      "miner_slots_emission_gt0": 245,
+      "validators_vtrust_gt_0_98": 3
+    },
+    {
+      "netuid": 123,
+      "distinct_miner_coldkeys_emission": 90,
+      "miner_slots_emission_gt0": 242,
+      "validators_vtrust_gt_0_98": 2
+    },
+    {
+      "netuid": 13,
+      "distinct_miner_coldkeys_emission": 82,
+      "miner_slots_emission_gt0": 158,
+      "validators_vtrust_gt_0_98": 3
+    },
+    {
+      "netuid": 118,
+      "distinct_miner_coldkeys_emission": 75,
+      "miner_slots_emission_gt0": 76,
+      "validators_vtrust_gt_0_98": 14
+    },
+    {
+      "netuid": 75,
+      "distinct_miner_coldkeys_emission": 70,
+      "miner_slots_emission_gt0": 192,
+      "validators_vtrust_gt_0_98": 9
+    },
+    {
+      "netuid": 57,
+      "distinct_miner_coldkeys_emission": 52,
+      "miner_slots_emission_gt0": 206,
+      "validators_vtrust_gt_0_98": 9
+    },
+    {
+      "netuid": 50,
+      "distinct_miner_coldkeys_emission": 45,
+      "miner_slots_emission_gt0": 239,
+      "validators_vtrust_gt_0_98": 7
+    },
+    {
+      "netuid": 65,
+      "distinct_miner_coldkeys_emission": 43,
+      "miner_slots_emission_gt0": 66,
+      "validators_vtrust_gt_0_98": 5
+    },
+    {
+      "netuid": 8,
+      "distinct_miner_coldkeys_emission": 41,
+      "miner_slots_emission_gt0": 45,
+      "validators_vtrust_gt_0_98": 6
+    },
+    {
+      "netuid": 100,
+      "distinct_miner_coldkeys_emission": 40,
+      "miner_slots_emission_gt0": 55,
+      "validators_vtrust_gt_0_98": 5
+    },
+    {
+      "netuid": 72,
+      "distinct_miner_coldkeys_emission": 37,
+      "miner_slots_emission_gt0": 247,
+      "validators_vtrust_gt_0_98": 2
+    },
+    {
+      "netuid": 61,
+      "distinct_miner_coldkeys_emission": 35,
+      "miner_slots_emission_gt0": 36,
+      "validators_vtrust_gt_0_98": 12
+    },
+    {
+      "netuid": 71,
+      "distinct_miner_coldkeys_emission": 33,
+      "miner_slots_emission_gt0": 223,
+      "validators_vtrust_gt_0_98": 1
+    },
+    {
+      "netuid": 64,
+      "distinct_miner_coldkeys_emission": 30,
+      "miner_slots_emission_gt0": 30,
+      "validators_vtrust_gt_0_98": 8
+    },
+    {
+      "netuid": 79,
+      "distinct_miner_coldkeys_emission": 30,
+      "miner_slots_emission_gt0": 228,
+      "validators_vtrust_gt_0_98": 1
+    },
+    {
+      "netuid": 128,
+      "distinct_miner_coldkeys_emission": 30,
+      "miner_slots_emission_gt0": 44,
+      "validators_vtrust_gt_0_98": 12
+    },
+    {
+      "netuid": 34,
+      "distinct_miner_coldkeys_emission": 29,
+      "miner_slots_emission_gt0": 53,
+      "validators_vtrust_gt_0_98": 7
+    },
+    {
+      "netuid": 51,
+      "distinct_miner_coldkeys_emission": 29,
+      "miner_slots_emission_gt0": 38,
+      "validators_vtrust_gt_0_98": 9
+    },
+    {
+      "netuid": 59,
+      "distinct_miner_coldkeys_emission": 23,
+      "miner_slots_emission_gt0": 147,
+      "validators_vtrust_gt_0_98": 7
+    },
+    {
+      "netuid": 103,
+      "distinct_miner_coldkeys_emission": 19,
+      "miner_slots_emission_gt0": 241,
+      "validators_vtrust_gt_0_98": 5
+    },
+    {
+      "netuid": 42,
+      "distinct_miner_coldkeys_emission": 18,
+      "miner_slots_emission_gt0": 245,
+      "validators_vtrust_gt_0_98": 6
+    },
+    {
+      "netuid": 74,
+      "distinct_miner_coldkeys_emission": 17,
+      "miner_slots_emission_gt0": 17,
+      "validators_vtrust_gt_0_98": 10
+    },
+    {
+      "netuid": 111,
+      "distinct_miner_coldkeys_emission": 17,
+      "miner_slots_emission_gt0": 243,
+      "validators_vtrust_gt_0_98": 1
+    },
+    {
+      "netuid": 114,
+      "distinct_miner_coldkeys_emission": 15,
+      "miner_slots_emission_gt0": 42,
+      "validators_vtrust_gt_0_98": 8
+    },
+    {
+      "netuid": 41,
+      "distinct_miner_coldkeys_emission": 14,
+      "miner_slots_emission_gt0": 31,
+      "validators_vtrust_gt_0_98": 10
+    },
+    {
+      "netuid": 2,
+      "distinct_miner_coldkeys_emission": 12,
+      "miner_slots_emission_gt0": 238,
+      "validators_vtrust_gt_0_98": 1
+    },
+    {
+      "netuid": 54,
+      "distinct_miner_coldkeys_emission": 12,
+      "miner_slots_emission_gt0": 165,
+      "validators_vtrust_gt_0_98": 4
+    },
+    {
+      "netuid": 22,
+      "distinct_miner_coldkeys_emission": 10,
+      "miner_slots_emission_gt0": 242,
+      "validators_vtrust_gt_0_98": 1
+    },
+    {
+      "netuid": 33,
+      "distinct_miner_coldkeys_emission": 10,
+      "miner_slots_emission_gt0": 238,
+      "validators_vtrust_gt_0_98": 11
+    },
+    {
+      "netuid": 16,
+      "distinct_miner_coldkeys_emission": 9,
+      "miner_slots_emission_gt0": 9,
+      "validators_vtrust_gt_0_98": 15
+    },
+    {
+      "netuid": 85,
+      "distinct_miner_coldkeys_emission": 9,
+      "miner_slots_emission_gt0": 100,
+      "validators_vtrust_gt_0_98": 1
+    },
+    {
+      "netuid": 77,
+      "distinct_miner_coldkeys_emission": 8,
+      "miner_slots_emission_gt0": 8,
+      "validators_vtrust_gt_0_98": 11
+    },
+    {
+      "netuid": 83,
+      "distinct_miner_coldkeys_emission": 8,
+      "miner_slots_emission_gt0": 244,
+      "validators_vtrust_gt_0_98": 10
+    },
+    {
+      "netuid": 14,
+      "distinct_miner_coldkeys_emission": 6,
+      "miner_slots_emission_gt0": 6,
+      "validators_vtrust_gt_0_98": 12
+    },
+    {
+      "netuid": 93,
+      "distinct_miner_coldkeys_emission": 6,
+      "miner_slots_emission_gt0": 6,
+      "validators_vtrust_gt_0_98": 7
+    },
+    {
+      "netuid": 32,
+      "distinct_miner_coldkeys_emission": 5,
+      "miner_slots_emission_gt0": 119,
+      "validators_vtrust_gt_0_98": 1
+    },
+    {
+      "netuid": 120,
+      "distinct_miner_coldkeys_emission": 5,
+      "miner_slots_emission_gt0": 5,
+      "validators_vtrust_gt_0_98": 10
+    },
+    {
+      "netuid": 4,
+      "distinct_miner_coldkeys_emission": 4,
+      "miner_slots_emission_gt0": 5,
+      "validators_vtrust_gt_0_98": 1
+    },
+    {
+      "netuid": 18,
+      "distinct_miner_coldkeys_emission": 4,
+      "miner_slots_emission_gt0": 4,
+      "validators_vtrust_gt_0_98": 7
+    },
+    {
+      "netuid": 45,
+      "distinct_miner_coldkeys_emission": 4,
+      "miner_slots_emission_gt0": 4,
+      "validators_vtrust_gt_0_98": 12
+    },
+    {
+      "netuid": 56,
+      "distinct_miner_coldkeys_emission": 4,
+      "miner_slots_emission_gt0": 18,
+      "validators_vtrust_gt_0_98": 13
+    },
+    {
+      "netuid": 127,
+      "distinct_miner_coldkeys_emission": 3,
+      "miner_slots_emission_gt0": 3,
+      "validators_vtrust_gt_0_98": 11
+    },
+    {
+      "netuid": 1,
+      "distinct_miner_coldkeys_emission": 2,
+      "miner_slots_emission_gt0": 2,
+      "validators_vtrust_gt_0_98": 9
+    },
+    {
+      "netuid": 35,
+      "distinct_miner_coldkeys_emission": 2,
+      "miner_slots_emission_gt0": 2,
+      "validators_vtrust_gt_0_98": 10
+    },
+    {
+      "netuid": 36,
+      "distinct_miner_coldkeys_emission": 2,
+      "miner_slots_emission_gt0": 2,
+      "validators_vtrust_gt_0_98": 9
+    },
+    {
+      "netuid": 44,
+      "distinct_miner_coldkeys_emission": 2,
+      "miner_slots_emission_gt0": 2,
+      "validators_vtrust_gt_0_98": 7
+    },
+    {
+      "netuid": 68,
+      "distinct_miner_coldkeys_emission": 2,
+      "miner_slots_emission_gt0": 2,
+      "validators_vtrust_gt_0_98": 1
+    },
+    {
+      "netuid": 73,
+      "distinct_miner_coldkeys_emission": 2,
+      "miner_slots_emission_gt0": 2,
+      "validators_vtrust_gt_0_98": 11
+    },
+    {
+      "netuid": 89,
+      "distinct_miner_coldkeys_emission": 2,
+      "miner_slots_emission_gt0": 2,
+      "validators_vtrust_gt_0_98": 11
+    },
+    {
+      "netuid": 5,
+      "distinct_miner_coldkeys_emission": 1,
+      "miner_slots_emission_gt0": 1,
+      "validators_vtrust_gt_0_98": 14
+    },
+    {
+      "netuid": 9,
+      "distinct_miner_coldkeys_emission": 1,
+      "miner_slots_emission_gt0": 1,
+      "validators_vtrust_gt_0_98": 10
+    },
+    {
+      "netuid": 11,
+      "distinct_miner_coldkeys_emission": 1,
+      "miner_slots_emission_gt0": 1,
+      "validators_vtrust_gt_0_98": 5
+    },
+    {
+      "netuid": 12,
+      "distinct_miner_coldkeys_emission": 1,
+      "miner_slots_emission_gt0": 6,
+      "validators_vtrust_gt_0_98": 7
+    },
+    {
+      "netuid": 15,
+      "distinct_miner_coldkeys_emission": 1,
+      "miner_slots_emission_gt0": 1,
+      "validators_vtrust_gt_0_98": 11
+    },
+    {
+      "netuid": 17,
+      "distinct_miner_coldkeys_emission": 1,
+      "miner_slots_emission_gt0": 1,
+      "validators_vtrust_gt_0_98": 7
+    },
+    {
+      "netuid": 20,
+      "distinct_miner_coldkeys_emission": 1,
+      "miner_slots_emission_gt0": 1,
+      "validators_vtrust_gt_0_98": 9
+    },
+    {
+      "netuid": 28,
+      "distinct_miner_coldkeys_emission": 1,
+      "miner_slots_emission_gt0": 1,
+      "validators_vtrust_gt_0_98": 14
+    },
+    {
+      "netuid": 39,
+      "distinct_miner_coldkeys_emission": 1,
+      "miner_slots_emission_gt0": 1,
+      "validators_vtrust_gt_0_98": 9
+    },
+    {
+      "netuid": 40,
+      "distinct_miner_coldkeys_emission": 1,
+      "miner_slots_emission_gt0": 1,
+      "validators_vtrust_gt_0_98": 12
+    },
+    {
+      "netuid": 43,
+      "distinct_miner_coldkeys_emission": 1,
+      "miner_slots_emission_gt0": 1,
+      "validators_vtrust_gt_0_98": 6
+    },
+    {
+      "netuid": 48,
+      "distinct_miner_coldkeys_emission": 1,
+      "miner_slots_emission_gt0": 3,
+      "validators_vtrust_gt_0_98": 9
+    },
+    {
+      "netuid": 49,
+      "distinct_miner_coldkeys_emission": 1,
+      "miner_slots_emission_gt0": 1,
+      "validators_vtrust_gt_0_98": 10
+    },
+    {
+      "netuid": 66,
+      "distinct_miner_coldkeys_emission": 1,
+      "miner_slots_emission_gt0": 1,
+      "validators_vtrust_gt_0_98": 10
+    },
+    {
+      "netuid": 70,
+      "distinct_miner_coldkeys_emission": 1,
+      "miner_slots_emission_gt0": 1,
+      "validators_vtrust_gt_0_98": 2
+    },
+    {
+      "netuid": 80,
+      "distinct_miner_coldkeys_emission": 1,
+      "miner_slots_emission_gt0": 1,
+      "validators_vtrust_gt_0_98": 4
+    },
+    {
+      "netuid": 81,
+      "distinct_miner_coldkeys_emission": 1,
+      "miner_slots_emission_gt0": 1,
+      "validators_vtrust_gt_0_98": 4
+    },
+    {
+      "netuid": 86,
+      "distinct_miner_coldkeys_emission": 1,
+      "miner_slots_emission_gt0": 1,
+      "validators_vtrust_gt_0_98": 10
+    },
+    {
+      "netuid": 94,
+      "distinct_miner_coldkeys_emission": 1,
+      "miner_slots_emission_gt0": 1,
+      "validators_vtrust_gt_0_98": 10
+    },
+    {
+      "netuid": 99,
+      "distinct_miner_coldkeys_emission": 1,
+      "miner_slots_emission_gt0": 1,
+      "validators_vtrust_gt_0_98": 3
+    },
+    {
+      "netuid": 104,
+      "distinct_miner_coldkeys_emission": 1,
+      "miner_slots_emission_gt0": 1,
+      "validators_vtrust_gt_0_98": 1
+    },
+    {
+      "netuid": 105,
+      "distinct_miner_coldkeys_emission": 1,
+      "miner_slots_emission_gt0": 1,
+      "validators_vtrust_gt_0_98": 4
+    },
+    {
+      "netuid": 116,
+      "distinct_miner_coldkeys_emission": 1,
+      "miner_slots_emission_gt0": 4,
+      "validators_vtrust_gt_0_98": 13
+    },
+    {
+      "netuid": 0,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 0
+    },
+    {
+      "netuid": 3,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 3
+    },
+    {
+      "netuid": 7,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 13
+    },
+    {
+      "netuid": 10,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 14
+    },
+    {
+      "netuid": 19,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 14
+    },
+    {
+      "netuid": 21,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 12
+    },
+    {
+      "netuid": 23,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 11
+    },
+    {
+      "netuid": 24,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 8
+    },
+    {
+      "netuid": 25,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 10
+    },
+    {
+      "netuid": 26,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 13
+    },
+    {
+      "netuid": 27,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 13
+    },
+    {
+      "netuid": 29,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 8
+    },
+    {
+      "netuid": 30,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 9
+    },
+    {
+      "netuid": 31,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 13
+    },
+    {
+      "netuid": 37,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 13
+    },
+    {
+      "netuid": 38,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 10
+    },
+    {
+      "netuid": 46,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 9
+    },
+    {
+      "netuid": 47,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 11
+    },
+    {
+      "netuid": 52,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 12
+    },
+    {
+      "netuid": 53,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 13
+    },
+    {
+      "netuid": 55,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 7
+    },
+    {
+      "netuid": 58,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 15
+    },
+    {
+      "netuid": 60,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 9
+    },
+    {
+      "netuid": 62,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 13
+    },
+    {
+      "netuid": 63,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 12
+    },
+    {
+      "netuid": 67,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 6
+    },
+    {
+      "netuid": 69,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 15
+    },
+    {
+      "netuid": 76,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 9
+    },
+    {
+      "netuid": 84,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 10
+    },
+    {
+      "netuid": 87,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 8
+    },
+    {
+      "netuid": 90,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 11
+    },
+    {
+      "netuid": 91,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 8
+    },
+    {
+      "netuid": 92,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 11
+    },
+    {
+      "netuid": 95,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 12
+    },
+    {
+      "netuid": 96,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 5
+    },
+    {
+      "netuid": 97,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 5
+    },
+    {
+      "netuid": 98,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 11
+    },
+    {
+      "netuid": 101,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 12
+    },
+    {
+      "netuid": 102,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 8
+    },
+    {
+      "netuid": 106,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 9
+    },
+    {
+      "netuid": 107,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 9
+    },
+    {
+      "netuid": 108,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 11
+    },
+    {
+      "netuid": 109,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 13
+    },
+    {
+      "netuid": 110,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 15
+    },
+    {
+      "netuid": 112,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 13
+    },
+    {
+      "netuid": 113,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 8
+    },
+    {
+      "netuid": 115,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 19
+    },
+    {
+      "netuid": 117,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 8
+    },
+    {
+      "netuid": 119,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 10
+    },
+    {
+      "netuid": 121,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 13
+    },
+    {
+      "netuid": 122,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 9
+    },
+    {
+      "netuid": 124,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 12
+    },
+    {
+      "netuid": 125,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 11
+    },
+    {
+      "netuid": 126,
+      "distinct_miner_coldkeys_emission": 0,
+      "miner_slots_emission_gt0": 0,
+      "validators_vtrust_gt_0_98": 7
+    }
+  ]
+}

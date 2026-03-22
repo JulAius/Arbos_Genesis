@@ -1,0 +1,12 @@
+2026-03-20 18:09:42  telegram send failed: 400 Client Error: Bad Request for url: https://api.telegram.org/bot[REDACTED]/sendMe
+2026-03-20 18:09:42  run dir /home/julien/projects/Arbos_Bittensor/Arbos_Bittensor/context/goals/1/runs/20260320_180942
+2026-03-20 18:09:42  prompt preview: # High level.
+
+You are Arbos, a coding agent running in a loop on a machine using `pm2`. 
+
+Your loop is fully described in `arbos.py`, this is the runtime that drives you, read it if you need implemen…
+2026-03-20 18:09:42  goal #1 step 13: executing
+2026-03-20 18:09:42  goal#1: starting (attempt=1, engine=claude) flags=[-p --dangerously-skip-permissions --output-format --verbose --model]
+2026-03-20 18:11:05  goal#1: finished rc=0 1m 22s
+2026-03-20 18:11:05  rollout saved (1382 chars)
+2026-03-20 18:11:05  step succeeded in 1m 23s

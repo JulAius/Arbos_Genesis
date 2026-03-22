@@ -1,0 +1,29 @@
+[
+  {
+    "id": "103662",
+    "label": "2026 NBA All-Star",
+    "slug": "2026-nba-all-star",
+    "createdAt": "2026-02-05T18:47:24.019673Z",
+    "updatedAt": "2026-03-09T22:21:41.889168Z",
+    "requiresTranslation": false
+  },
+  {
+    "id": "100283",
+    "label": "NBA Draft",
+    "slug": "nba-draft",
+    "forceShow": false,
+    "createdAt": "2024-06-25T00:18:43.354155Z",
+    "updatedAt": "2026-03-09T22:21:41.884442Z",
+    "requiresTranslation": false
+  },
+  {
+    "id": "102769",
+    "label": "NBA Gambling Scandal",
+    "slug": "nba-gambling-scandal",
+    "forceShow": false,
+    "createdAt": "2025-10-23T17:15:49.523648Z",
+    "updatedAt": "2026-03-09T22:22:01.888174Z",
+    "isCarousel": false,
+    "requiresTranslation": false
+  }
+]

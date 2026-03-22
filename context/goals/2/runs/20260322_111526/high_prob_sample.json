@@ -1,0 +1,502 @@
+[
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will Liverpool win the 2025\u201326 English Premier League?",
+    "slug": "will-liverpool-win-the-202526-english-premier-league",
+    "liquidity": 1383220.29222,
+    "volume24hr": 36018.95,
+    "competitive": 0.8003199679231757,
+    "end": "2026-05-27"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will the next Prime Minister of Hungary be Kl\u00e1ra Dobrev?",
+    "slug": "will-the-next-prime-minister-of-hungary-be-klra-dobrev",
+    "liquidity": 728478.99996,
+    "volume24hr": 15420.370572,
+    "competitive": 0.8003199679231757,
+    "end": "2026-04-12"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will Club Brugge win the 2025\u201326 Champions League?",
+    "slug": "will-club-brugge-win-the-202526-champions-league",
+    "liquidity": 728017.8949,
+    "volume24hr": 12281.57,
+    "competitive": 0.8003199679231757,
+    "end": "2026-05-31"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will Melbourne City FC win on 2026-03-22?",
+    "slug": "aus-per-mct-2026-03-22-mct",
+    "liquidity": 562524.28106,
+    "volume24hr": 513784.81307000015,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-22"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "Amanda Anisimova",
+    "question": "Miami Open: Amanda Anisimova vs Yulia Starodubtseva",
+    "slug": "wta-anisimo-starodu-2026-03-21",
+    "liquidity": 557120.79731,
+    "volume24hr": 126034.26942599998,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-28"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "South Africa",
+    "question": "T20 Series New Zealand vs South Africa: New Zealand vs South Africa",
+    "slug": "crint-nzl-zaf-2026-03-22",
+    "liquidity": 404961.6513,
+    "volume24hr": 380243.26394700044,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-29"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "Under",
+    "question": "Perth Glory FC vs. Melbourne City FC: O/U 2.5",
+    "slug": "aus-per-mct-2026-03-22-total-2pt5",
+    "liquidity": 361161.94336,
+    "volume24hr": 176019.29993799987,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-22"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will Urawa Red Diamonds win on 2026-03-22?",
+    "slug": "j1100-ura-zel-2026-03-22-ura",
+    "liquidity": 267657.46788,
+    "volume24hr": 14014.897889000002,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-22"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "Rafael Jodar",
+    "question": "Miami Open: Aleksandar Vukic vs Rafael Jodar",
+    "slug": "atp-vukic-jodar-2026-03-20",
+    "liquidity": 263377.93268,
+    "volume24hr": 72258.046777,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-27"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "Yes",
+    "question": "Will FC Machida Zelvia win on 2026-03-22?",
+    "slug": "j1100-ura-zel-2026-03-22-zel",
+    "liquidity": 255863.39644,
+    "volume24hr": 11862.154567000001,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-22"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "Anyang",
+    "question": "Anyang vs. Sonic Boom",
+    "slug": "bkkbl-any-son-2026-03-22",
+    "liquidity": 251135.09536,
+    "volume24hr": 28729.38247400001,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-29"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will Urawa Red Diamonds vs. FC Machida Zelvia end in a draw?",
+    "slug": "j1100-ura-zel-2026-03-22-draw",
+    "liquidity": 244194.76432,
+    "volume24hr": 7088.406369000001,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-22"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "Naive Piggy",
+    "question": "Overwatch: Milk Tea vs Naive Piggy - Game 1 Winner",
+    "slug": "ow-mt-np-2026-03-22-game1",
+    "liquidity": 218600.28028,
+    "volume24hr": 11174.064773,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-22"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "Yes",
+    "question": "Will Perth Glory FC vs. Melbourne City FC end in a draw?",
+    "slug": "aus-per-mct-2026-03-22-draw",
+    "liquidity": 214324.42959,
+    "volume24hr": 17410.379379999995,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-22"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will MrBeast's next video get between 25 and 30 million views on day 1?",
+    "slug": "will-mrbeasts-next-video-get-between-25-and-30-million-views-on-day-1-169",
+    "liquidity": 161606.38504,
+    "volume24hr": 414580.2377970001,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-31"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will LeBron James win the 2025\u20132026 NBA MVP?",
+    "slug": "will-lebron-james-win-the-20252026-nba-mvp",
+    "liquidity": 159250.40183,
+    "volume24hr": 22606.77,
+    "competitive": 0.8003199679231757,
+    "end": "2026-06-10"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will the New York Rangers win the 2026 NHL Stanley Cup?",
+    "slug": "will-the-new-york-rangers-win-the-2026-nhl-stanley-cup",
+    "liquidity": 158244.23575,
+    "volume24hr": 13223.11,
+    "competitive": 0.8003199679231757,
+    "end": "2026-06-30"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will the Vancouver Canucks win the 2026 NHL Stanley Cup?",
+    "slug": "will-the-vancouver-canucks-win-the-2026-nhl-stanley-cup",
+    "liquidity": 143333.09532,
+    "volume24hr": 18699.72,
+    "competitive": 0.8003199679231757,
+    "end": "2026-06-30"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will the St. Louis Blues win the 2026 NHL Stanley Cup?",
+    "slug": "will-the-st-louis-blues-win-the-2026-nhl-stanley-cup",
+    "liquidity": 132650.54929,
+    "volume24hr": 61107.885,
+    "competitive": 0.8003199679231757,
+    "end": "2026-06-30"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will Elon Musk post 280-299 tweets from March 17 to March 24, 2026?",
+    "slug": "elon-musk-of-tweets-march-17-march-24-280-299",
+    "liquidity": 126995.67072,
+    "volume24hr": 307420.94707099994,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-24"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will the Calgary Flames win the 2026 NHL Stanley Cup?",
+    "slug": "will-the-calgary-flames-win-the-2026-nhl-stanley-cup",
+    "liquidity": 126668.61904,
+    "volume24hr": 7177.125,
+    "competitive": 0.8003199679231757,
+    "end": "2026-06-30"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will Wesley Hunt win the 2026 Texas Republican Primary?",
+    "slug": "will-wesley-hunt-win-the-2026-republican-primary",
+    "liquidity": 123646.92038,
+    "volume24hr": 93588.45999999999,
+    "competitive": 0.8003199679231757,
+    "end": "2026-05-26"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will Moonshot have the best AI model at the end of March 2026?",
+    "slug": "will-moonshot-have-the-best-ai-model-at-the-end-of-march-2026-924",
+    "liquidity": 123620.31475,
+    "volume24hr": 42756.87918699997,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-31"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will Perth Glory FC win on 2026-03-22?",
+    "slug": "aus-per-mct-2026-03-22-per",
+    "liquidity": 120251.13434,
+    "volume24hr": 42506.91321399999,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-22"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will the price of Bitcoin be above $76,000 on March 22?",
+    "slug": "bitcoin-above-76k-on-march-22",
+    "liquidity": 115446.16927,
+    "volume24hr": 248598.92298799998,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-22"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will Richard Grenell be the leader of Venezuela end of 2026?",
+    "slug": "will-richard-grenell-be-the-leader-of-venezuela-end-of-2026",
+    "liquidity": 110752.53392,
+    "volume24hr": 131848.22,
+    "competitive": 0.8003199679231757,
+    "end": "2026-12-31"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will the highest temperature in London be 7\u00b0C or below on March 22?",
+    "slug": "highest-temperature-in-london-on-march-22-2026-7corbelow",
+    "liquidity": 105777.09641,
+    "volume24hr": 6850.6075,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-22"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will Bitcoin reach $86,000 March 16-22?",
+    "slug": "will-bitcoin-reach-86k-march-16-22",
+    "liquidity": 104273.01621,
+    "volume24hr": 114638.292,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-23"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "Over",
+    "question": "Perth Glory FC vs. Melbourne City FC: O/U 1.5",
+    "slug": "aus-per-mct-2026-03-22-total-1pt5",
+    "liquidity": 101696.61293,
+    "volume24hr": 14373.854608999998,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-22"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will Elon Musk post 100-119 tweets from March 20 to March 27, 2026?",
+    "slug": "elon-musk-of-tweets-march-20-march-27-100-119",
+    "liquidity": 101034.48491,
+    "volume24hr": 35291.51,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-27"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will Jeju SK FC win on 2026-03-22?",
+    "slug": "kor-gwo-jej-2026-03-22-jej",
+    "liquidity": 98080.40639,
+    "volume24hr": 32214.72246499999,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-22"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "Under",
+    "question": "Perth Glory FC vs. Melbourne City FC: O/U 3.5",
+    "slug": "aus-per-mct-2026-03-22-total-3pt5",
+    "liquidity": 94246.76701,
+    "volume24hr": 9706.969418,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-22"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will the price of Bitcoin be above $78,000 on March 22?",
+    "slug": "bitcoin-above-78k-on-march-22",
+    "liquidity": 91302.32583,
+    "volume24hr": 158840.246565,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-22"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will Cade Cunningham win the 2025\u20132026 NBA MVP?",
+    "slug": "will-cade-cunningham-win-the-20252026-nba-mvp",
+    "liquidity": 90927.79719,
+    "volume24hr": 9433.245,
+    "competitive": 0.8003199679231757,
+    "end": "2026-06-10"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will the price of Bitcoin be above $74,000 on March 22?",
+    "slug": "bitcoin-above-74k-on-march-22",
+    "liquidity": 90070.75263,
+    "volume24hr": 382556.84083599993,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-22"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will Utah State win the 2026 NCAA Tournament?",
+    "slug": "will-utah-state-win-the-2026-ncaa-tournament",
+    "liquidity": 85636.9439,
+    "volume24hr": 77046.14,
+    "competitive": 0.8003199679231757,
+    "end": "2026-04-04"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will the price of Bitcoin be above $80,000 on March 22?",
+    "slug": "bitcoin-above-80k-on-march-22",
+    "liquidity": 81731.18265,
+    "volume24hr": 23866.177493999996,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-22"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will the price of Bitcoin be above $84,000 on March 23?",
+    "slug": "bitcoin-above-84k-on-march-23",
+    "liquidity": 81340.04903,
+    "volume24hr": 40217.338124999995,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-23"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will Elon Musk post 60-79 tweets from March 24 to March 31, 2026?",
+    "slug": "elon-musk-of-tweets-march-24-march-31-60-79",
+    "liquidity": 79628.11431,
+    "volume24hr": 10093.000000000004,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-31"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "Yes",
+    "question": "Will the price of Bitcoin be above $62,000 on March 22?",
+    "slug": "bitcoin-above-62k-on-march-22",
+    "liquidity": 75454.59307,
+    "volume24hr": 259188.76441100004,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-22"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will Elon Musk post 120-139 tweets from March 20 to March 27, 2026?",
+    "slug": "elon-musk-of-tweets-march-20-march-27-120-139",
+    "liquidity": 75244.15141,
+    "volume24hr": 36394.293000000005,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-27"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will the price of Bitcoin be above $82,000 on March 23?",
+    "slug": "bitcoin-above-82k-on-march-23",
+    "liquidity": 74468.33509,
+    "volume24hr": 79292.272,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-23"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will the highest temperature in London be 8\u00b0C on March 22?",
+    "slug": "highest-temperature-in-london-on-march-22-2026-8c",
+    "liquidity": 74066.71507,
+    "volume24hr": 10263.528677,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-22"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will Sophia Chikirou win the Paris mayor election?",
+    "slug": "will-sophia-chikirou-win-the-paris-mayor-election",
+    "liquidity": 70398.7907,
+    "volume24hr": 16023.595000000001,
+    "competitive": 0.8003199679231757,
+    "end": ""
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "Yes",
+    "question": "Will the price of Ethereum be above $1,600 on March 22?",
+    "slug": "ethereum-above-1600-on-march-22",
+    "liquidity": 69976.16131,
+    "volume24hr": 16000.0,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-22"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will the highest temperature in Ankara be 10\u00b0C on March 22?",
+    "slug": "highest-temperature-in-ankara-on-march-22-2026-10c",
+    "liquidity": 68826.61238,
+    "volume24hr": 17148.599507000003,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-22"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will MrBeast's next video get less than 20 million views on day 1?",
+    "slug": "will-mrbeasts-next-video-get-less-than-20-million-views-on-day-1-521",
+    "liquidity": 68375.78276,
+    "volume24hr": 169000.31758300003,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-31"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will Elon Musk post 300-319 tweets from March 17 to March 24, 2026?",
+    "slug": "elon-musk-of-tweets-march-17-march-24-300-319",
+    "liquidity": 67977.80883,
+    "volume24hr": 257945.81805000003,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-24"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will FC Anyang win on 2026-03-22?",
+    "slug": "kor-any-inc-2026-03-22-any",
+    "liquidity": 66064.16775,
+    "volume24hr": 21762.486989,
+    "competitive": 0.8003199679231757,
+    "end": "2026-03-22"
+  },
+  {
+    "max_implied_prob": 0.9995,
+    "leading_outcome": "No",
+    "question": "Will Evan Pettus be the leader of Venezuela end of 2026?",
+    "slug": "will-evan-pettus-be-the-leader-of-venezuela-end-of-2026",
+    "liquidity": 65246.3947,
+    "volume24hr": 27210.709999999995,
+    "competitive": 0.8003199679231757,
+    "end": "2026-12-31"
+  }
+]

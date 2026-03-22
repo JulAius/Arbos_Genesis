@@ -1,0 +1,11 @@
+2026-03-20 18:08:54  run dir /home/julien/projects/Arbos_Bittensor/Arbos_Bittensor/context/workspace/-5097366430/goals/1/runs/20260320_180854
+2026-03-20 18:08:54  prompt preview: # High level.
+
+You are Arbos, a coding agent running in a loop on a machine using `pm2`. 
+
+Your loop is fully described in `arbos.py`, this is the runtime that drives you, read it if you need implemen…
+2026-03-20 18:08:54  goal #1 step 4: executing
+2026-03-20 18:08:54  goal#1: starting (attempt=1, engine=claude) flags=[-p --dangerously-skip-permissions --output-format --verbose --model]
+2026-03-20 18:09:09  goal#1: finished rc=0 14.3s
+2026-03-20 18:09:09  rollout saved (693 chars)
+2026-03-20 18:09:09  step succeeded in 14.4s
