@@ -14,7 +14,7 @@
 | **Chi knowledge** | Submodule `external/Chi` → YAML in `external/Chi/knowledge/`. **Context only**—agents still **run `agcli` / `btcli`** (and docs/web) for real answers; Chi is not the end state. |
 | **Data providers** | CLI tools `taostats` (network analytics, miner reports) and `taomarketcap` (TAO price, volume, market cap). Set `TAOSTATS_API_KEY` / `TAOMARKETCAP_API_KEY` in `.env`. Knowledge: `data_providers/knowledge/`. |
 | **Telegram** | **`TELEGRAM_PUBLIC_CHAT_IDS`** / **`TELEGRAM_WORKSPACE_GROUP_IDS`**: **members** invoke the agent with **`/arbos`** + question (voice/photo/file need a **caption** starting with `/arbos …`). **Operators** keep normal messages + full **`/`** commands (`TELEGRAM_OWNER_ID` / `TELEGRAM_OWNER_IDS`). Add command **`arbos`** in [@BotFather](https://t.me/BotFather) → Edit bot → Edit commands. Replies are **final text only** unless **`TELEGRAM_STREAMING_UPDATES=true`**. **`GOALS_BACKGROUND_AUTORUN`** defaults **off** when a bot token and group ids are set. Owner: **`/start` in private** first. |
-| **Mission fixe** | **`GOAL_TELEGRAM_BITTENSOR.md`** + **`TELEGRAM_QA_FIXED_GOAL=true`** → **`context/goals/1/GOAL.md`** : une mission stable — répondre avec **tous les outils nécessaires**, **spécialisé Bittensor** et **tout l’écosystème** (même texte que le flux **`/arbos`**). **`/start 1`** aligne la boucle Ralph. |
+| **Mission fixe** | **`context/workspace/<id>/GOAL_TELEGRAM_BITTENSOR.md`** + **`TELEGRAM_QA_FIXED_GOAL=true`** → seeds **goal #1** per workspace : une mission stable — répondre avec **tous les outils nécessaires**, **spécialisé Bittensor** et **tout l’écosystème** (même texte que le flux **`/arbos`**). **`/start 1`** aligne la boucle Ralph. |
 | **Checks** | `./tools/check_agcli.sh`, `./tools/check_btcli.sh`, `./tools/check_data_providers.sh` |
 | **Chat log** | **`context/chat/by_user/<id>/`** = fil personnel (réponse alignée sur l’historique de ce user). **`context/chat/group/<chat_id>/`** = miroir **salon** (tous les membres) pour le **contexte** seulement. **`context/chat/*.jsonl`** = journal global Ralph / système. |
 
@@ -64,7 +64,7 @@ cp .env.example .env
 # Edit .env: PROVIDER, FALLBACK_*, tokens, TAU_BOT_TOKEN, TELEGRAM_OWNER_ID
 # Optional: TELEGRAM_PUBLIC_CHAT_IDS=-100...  (discussion supergroup if using a channel)
 # Optional: TELEGRAM_WORKSPACE_GROUP_IDS=-100...  (Discord-style workspace per supergroup; forum: topic = goal)
-# Optional: TELEGRAM_QA_FIXED_GOAL=true — seeds goal #1 from GOAL_TELEGRAM_BITTENSOR.md
+# Optional: TELEGRAM_QA_FIXED_GOAL=true — seeds goal #1 from workspace GOAL_TELEGRAM_BITTENSOR.md
 
 python3 -m venv .venv
 source .venv/bin/activate

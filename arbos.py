@@ -556,12 +556,23 @@ def _total_registered_goals() -> int:
     return n
 
 
-TELEGRAM_QA_GOAL_TEMPLATE = WORKING_DIR / "GOAL_TELEGRAM_BITTENSOR.md"
+TELEGRAM_QA_GOAL_TEMPLATE_NAME = "GOAL_TELEGRAM_BITTENSOR.md"
+_TELEGRAM_QA_GOAL_TEMPLATE_FALLBACK = WORKING_DIR / TELEGRAM_QA_GOAL_TEMPLATE_NAME
 
 
-def _telegram_qa_fixed_goal_markdown() -> str:
-    if TELEGRAM_QA_GOAL_TEMPLATE.is_file():
-        return TELEGRAM_QA_GOAL_TEMPLATE.read_text().strip()
+def _telegram_qa_goal_template_path(workspace_id: int = 0) -> Path:
+    """Per-workspace goal template: workspace dir first, then repo root fallback."""
+    if workspace_id:
+        ws_path = WORKSPACES_DIR / str(workspace_id) / TELEGRAM_QA_GOAL_TEMPLATE_NAME
+        if ws_path.is_file():
+            return ws_path
+    return _TELEGRAM_QA_GOAL_TEMPLATE_FALLBACK
+
+
+def _telegram_qa_fixed_goal_markdown(workspace_id: int = 0) -> str:
+    p = _telegram_qa_goal_template_path(workspace_id)
+    if p.is_file():
+        return p.read_text().strip()
     return (
         "# Mission fixe — Telegram Bittensor\n\n"
         "À chaque demande : répondre avec **tous les outils nécessaires**, **spécialisé Bittensor** et l’**écosystème complet** "
@@ -571,28 +582,45 @@ def _telegram_qa_fixed_goal_markdown() -> str:
 
 
 def _ensure_telegram_qa_fixed_goal():
-    """Seed goal #1 from GOAL_TELEGRAM_BITTENSOR.md when TELEGRAM_QA_FIXED_GOAL is set."""
+    """Seed goal #1 from GOAL_TELEGRAM_BITTENSOR.md when TELEGRAM_QA_FIXED_GOAL is set.
+
+    Only seeds configured workspace groups. Legacy goals (context/goals/) are left
+    free for the operator to define independently.
+    """
     if not TELEGRAM_QA_FIXED_GOAL:
         return
     idx = 1
-    gdir = _goal_dir(idx)
+    summary = "Bittensor : outils complets + écosystème (mission fixe)"
+
+    # Seed configured workspace groups only
+    for ws_id in _telegram_workspace_group_ids_from_env():
+        _seed_fixed_goal_for(idx, ws_id, summary)
+
+
+def _seed_fixed_goal_for(idx: int, workspace_id: int, summary: str):
+    """Seed a single fixed goal for a given workspace."""
+    gdir = _goal_dir(idx, workspace_id)
     gdir.mkdir(parents=True, exist_ok=True)
-    _goal_runs_dir(idx).mkdir(parents=True, exist_ok=True)
-    gf = _goal_file(idx)
-    body = _telegram_qa_fixed_goal_markdown()
+    _goal_runs_dir(idx, workspace_id).mkdir(parents=True, exist_ok=True)
+    gf = _goal_file(idx, workspace_id)
+    body = _telegram_qa_fixed_goal_markdown(workspace_id)
+    ws_tag = f"workspace {workspace_id}" if workspace_id else "legacy"
     if not gf.exists() or not gf.read_text().strip():
         gf.write_text(body.rstrip() + "\n")
-        _log(f"TELEGRAM_QA_FIXED_GOAL: seeded context/goals/{idx}/GOAL.md from template")
-    if not _state_file(idx).exists():
-        _state_file(idx).write_text("")
-    if not _inbox_file(idx).exists():
-        _inbox_file(idx).write_text("")
-    summary = "Bittensor : outils complets + écosystème (mission fixe)"
+        _log(f"TELEGRAM_QA_FIXED_GOAL: seeded goal #{idx} from template ({ws_tag})")
+    if not _state_file(idx, workspace_id).exists():
+        _state_file(idx, workspace_id).write_text("")
+    if not _inbox_file(idx, workspace_id).exists():
+        _inbox_file(idx, workspace_id).write_text("")
     with _goals_lock:
-        if idx not in _goals:
-            _goals[idx] = GoalState(index=idx, summary=summary)
-            _save_goals()
-            _log(f"TELEGRAM_QA_FIXED_GOAL: registered goal #{idx} in goals.json")
+        if workspace_id == 0:
+            goals_map = _goals
+        else:
+            goals_map = _tg_goals_map(workspace_id)
+        if idx not in goals_map:
+            goals_map[idx] = GoalState(index=idx, summary=summary)
+            _save_goals(workspace_id)
+            _log(f"TELEGRAM_QA_FIXED_GOAL: registered goal #{idx} ({ws_tag})")
 
 
 def _format_last_time(iso_ts: str) -> str:
@@ -3240,13 +3268,14 @@ def _build_public_bittensor_prompt(
     *,
     telegram_user_id: int | None = None,
     telegram_room_id: int | None = None,
+    workspace_id: int = 0,
 ) -> str:
     """Prompt for `/arbos`: fixed goal from file + per-user STATE.md + full toolkit."""
     room = chat_title or "this chat"
     chi = _chi_knowledge_section(compact=False)
 
-    # Fixed goal from GOAL_TELEGRAM_BITTENSOR.md
-    goal_text = _telegram_qa_fixed_goal_markdown()
+    # Fixed goal from workspace GOAL_TELEGRAM_BITTENSOR.md (or repo root fallback)
+    goal_text = _telegram_qa_fixed_goal_markdown(workspace_id)
 
     # Per-user persistent state
     state_text = ""
@@ -4497,6 +4526,7 @@ def run_bot():
                 message.chat.title,
                 telegram_user_id=uid,
                 telegram_room_id=rid,
+                workspace_id=tw,
             )
 
         def _run():
@@ -4605,11 +4635,11 @@ def run_bot():
 
         cid = message.chat.id
         rid = cid if cid < 0 else None
+        tw = cid if cid in workspace_group_ids else 0
         log_chat(
             "user", user_text[:1000], telegram_user_id=uid, telegram_shared_room_id=rid,
         )
         if _is_owner(uid):
-            tw = cid if cid in workspace_group_ids else 0
             topic_g = _active_topic_goal_key(message, cid)
             prompt = _build_operator_prompt(
                 _telegram_reply_prefix(message) + user_text,
@@ -4627,6 +4657,7 @@ def run_bot():
                 message.chat.title,
                 telegram_user_id=uid,
                 telegram_room_id=rid,
+                workspace_id=tw,
             )
 
         def _run():
@@ -4718,6 +4749,7 @@ def run_bot():
                 message.chat.title,
                 telegram_user_id=uid,
                 telegram_room_id=rid,
+                workspace_id=tw,
             )
 
         def _run():
@@ -4793,6 +4825,7 @@ def run_bot():
                 message.chat.title,
                 telegram_user_id=uid,
                 telegram_room_id=rid,
+                workspace_id=tw,
             )
 
         def _run():
