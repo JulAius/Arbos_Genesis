@@ -20,7 +20,8 @@ from pathlib import Path
 from datetime import datetime, timedelta
 
 BASE_URL = os.getenv("DISCORD_BASE_URL", "https://discord.com/api/v10")
-DEFAULT_GUILD = os.getenv("DISCORD_GUILD_ID", "799672011265015819")
+DEFAULT_GUILD = "799672011265015819"  # Bittensor Discord — only allowed guild
+ALLOWED_GUILD = DEFAULT_GUILD
 
 
 # ── env / auth ────────────────────────────────────────────────────────────────
@@ -100,15 +101,25 @@ def _get(path: str, params: Optional[dict] = None, *, _retries: int = 3) -> Any:
     raise last_exc  # type: ignore[misc]
 
 
+# ── Guild guard ──────────────────────────────────────────────────────────────
+
+def _enforce_guild(guild_id: str) -> None:
+    """Raise if guild_id is not the allowed Bittensor guild."""
+    if guild_id != ALLOWED_GUILD:
+        raise PermissionError(f"Access restricted to Bittensor guild ({ALLOWED_GUILD}). Got: {guild_id}")
+
+
 # ── Guild ────────────────────────────────────────────────────────────────────
 
 def get_guild(guild_id: str = DEFAULT_GUILD) -> dict:
     """Guild info (name, description, member count, etc.)."""
+    _enforce_guild(guild_id)
     return _get(f"/guilds/{guild_id}", {"with_counts": "true"})
 
 
 def get_guild_channels(guild_id: str = DEFAULT_GUILD) -> list:
     """List all channels in a guild. Returns channel objects with id, name, type, parent_id, topic."""
+    _enforce_guild(guild_id)
     return _get(f"/guilds/{guild_id}/channels")
 
 
@@ -145,6 +156,7 @@ def get_pinned_messages(channel_id: str) -> list:
 
 def get_active_threads(guild_id: str = DEFAULT_GUILD) -> dict:
     """List all active threads in a guild. Returns {threads: [...], members: [...]}."""
+    _enforce_guild(guild_id)
     return _get(f"/guilds/{guild_id}/threads/active")
 
 
@@ -173,9 +185,10 @@ def search_guild_messages(guild_id: str = DEFAULT_GUILD,
                           min_id: str | None = None,
                           max_id: str | None = None,
                           limit: int = 25) -> dict:
-    """Search messages in a guild (bot must have access).
+    """Search messages in a guild.
     has: link, embed, file, video, image, sound, sticker.
     Returns {messages: [[msg, ...], ...], total_results: int}."""
+    _enforce_guild(guild_id)
     return _get(f"/guilds/{guild_id}/messages/search", {
         "content": content,
         "author_id": author_id,
@@ -259,9 +272,8 @@ def _cli():
 
     P = argparse.ArgumentParser(
         prog="discord",
-        description="Discord API CLI — read-only access to guilds, channels and messages (Bittensor Discord by default)",
+        description="Discord API CLI — read-only access to Bittensor Discord (guild 799672011265015819)",
     )
-    P.add_argument("--guild", default=DEFAULT_GUILD, help=f"Guild ID (default: {DEFAULT_GUILD})")
     P.add_argument("--raw", action="store_true", help="Output raw API response (no formatting)")
 
     S = P.add_subparsers(dest="cmd")
@@ -315,7 +327,7 @@ def _cli():
             P.print_help()
             return
 
-        guild = a.pop("guild")
+        guild = ALLOWED_GUILD
         raw = a.pop("raw")
 
         def _out(data):
