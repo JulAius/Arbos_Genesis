@@ -7,7 +7,7 @@
 ## Doctrine : résultats d'abord
 
 1. **Exécuter, pas décrire.** Ne dis jamais "vous pouvez utiliser agcli pour…" — lance la commande, parse le résultat, donne la réponse.
-2. **Croiser les sources.** Une seule source ne suffit pas. CLI on-chain + Taostats/Taomarketcap + Chi/docs + WebSearch si nécessaire.
+2. **Croiser les sources.** Une seule source ne suffit pas. CLI on-chain + Taostats/Taomarketcap + Chi/docs + WebSearch si nécessaire. **Rappel opérateur :** ne pas « oublier » le trio **WebSearch + `taostats` + `taomarketcap`** — les utiliser dès qu’une question touche l’écosystème, les métriques marché, l’historique hors-chaîne ou un lien (ex. GitHub) que la seule lecture `agcli`/`btcli` ne peut pas établir.
 3. **Écrire des scripts si besoin.** Si la réponse demande une agrégation, un classement ou un calcul que les CLIs ne fournissent pas directement, écrire et exécuter un script Python ad hoc. Les scripts utilitaires du workspace (`tools/`) et les data providers (`data_providers/`) sont là pour ça.
 4. **Knowledge bases = contexte de première intention.** Avant de chercher sur le web, consulter Chi (`external/Chi/knowledge/INDEX.yaml` → fichiers YAML par tâche) et les knowledge data providers (`data_providers/knowledge/`). Recouper avec les CLIs et sources live.
 5. **WebSearch / WebFetch** quand la question dépasse le dépôt, les CLIs ou les knowledge bases. Ne pas hésiter.
@@ -17,7 +17,7 @@
 
 - **CLIs d'abord :** `agcli` et `btcli` (lecture seule quand ça suffit ; `--help` avant toute extrinsic ; opérations wallet soumises aux shims).
 - **APIs data :** `taostats` (analytics réseau, miners, subnets) et `taomarketcap` (prix, volume, supply) — via les CLIs dans `tools/`.
-- **Scripts workspace :** `tools/rank_miners_multi_subnet.py` (coldkeys multi-subnet, tri par balance), `tools/subnet_miner_ck_and_vtrust.py` (coldkeys miners + vtrust validateurs par subnet), `tools/polymarket_scan.py` (marchés prédictifs).
+- **Scripts workspace :** `tools/rank_miners_multi_subnet.py` (coldkeys multi-subnet, tri par balance), `tools/subnet_miner_ck_and_vtrust.py` (coldkeys miners + vtrust validateurs par subnet),
 - **Chi** (`external/Chi/knowledge/`) : orientation et vocabulaire, recouper systématiquement avec sources live. `INDEX.yaml` pour le routing par tâche.
 - **GitHub** : `gh` CLI pour explorer repos, issues, PRs de l'écosystème Bittensor.
 - **Web et docs** quand la question dépasse le dépôt ou les CLIs.
@@ -124,3 +124,10 @@ YAML Bittensor curé sous **`external/Chi/knowledge/`** ([unconst/Chi](https://g
 - Auth taostats/taomarketcap : `Authorization: <key>` sans préfixe Bearer (Bearer → 401).
 - taomarketcap : le champ prix est `current_price` (pas `usd_quote.price_usd`). L'endpoint validateurs est `/validators/full/` (pas `/validators/` → 405).
 - Pagination taostats : `--page` / `--limit` → réponse sous clé `data`. Pagination taomarketcap : `--limit` / `--offset` → réponse sous clé `results`.
+- Taostats endpoints payants (plan Pro requis) : `accounting`, `tax-report`, `dtao-portfolio`, `dtao-liquidity-*`, `otc-*`. Sur plan Free : 403 Forbidden. Préférer les endpoints gratuits (`validators`, `subnets`, `metagraph`, `price`, `dtao-pools`, `dtao-stake`, `dtao-trades`).
+- Taostats rate limit free tier : ~10 req/s. Ajouter `time.sleep(0.15)` entre les appels en boucle pour éviter les 429.
+- Taostats endpoint pattern : `/api/{resource}/{scope}/v1` (version à la FIN, pas au début). Ex: `/api/subnet/latest/v1`, pas `/v1/subnet/latest`.
+- taomarketcap endpoint pattern : `/public/v1/{resource}/` (version au DÉBUT). Ex: `/public/v1/subnets/`.
+- Si un endpoint renvoie 403 (plan insuffisant), ne pas réessayer — noter dans STATE.md et utiliser un endpoint alternatif ou `btcli`/`agcli` comme fallback.
+- `taostats dtao-slippage <netuid> <amount>` : utile pour estimer le coût d'un swap dTAO avant achat. Gratuit.
+- `taomarketcap analytics-chain --span 7d` : résumé chaîne (volume, buys, etc.) sur 7 jours en un seul appel. Gratuit.

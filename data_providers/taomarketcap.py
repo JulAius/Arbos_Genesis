@@ -99,12 +99,32 @@ def _headers() -> dict:
     return {"Authorization": _get_api_key(), "accept": "application/json"}
 
 
-def _get(path: str, params: Optional[dict] = None) -> Any:
+def _get(path: str, params: Optional[dict] = None, *, _retries: int = 3) -> Any:
+    import time
     url = f"{BASE_URL}{path}"
-    response = httpx.get(url, params={k: v for k, v in (params or {}).items() if v is not None},
-                         headers=_headers(), timeout=30)
-    response.raise_for_status()
-    return response.json()
+    clean = {k: v for k, v in (params or {}).items() if v is not None}
+    last_exc: Exception | None = None
+    for attempt in range(_retries):
+        try:
+            response = httpx.get(url, params=clean, headers=_headers(), timeout=30)
+            if response.status_code == 403:
+                raise httpx.HTTPStatusError(
+                    f"403 Forbidden — endpoint may require a paid plan: {path}",
+                    request=response.request, response=response,
+                )
+            response.raise_for_status()
+            return response.json()
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError) as exc:
+            last_exc = exc
+            if attempt < _retries - 1:
+                time.sleep(1.5 * (attempt + 1))
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (429, 500, 502, 503, 504) and attempt < _retries - 1:
+                last_exc = exc
+                time.sleep(2.0 * (attempt + 1))
+            else:
+                raise
+    raise last_exc  # type: ignore[misc]
 
 
 # ── Market ────────────────────────────────────────────────────────────────────

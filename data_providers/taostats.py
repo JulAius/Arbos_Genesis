@@ -53,11 +53,32 @@ def _headers() -> dict:
     return {"Authorization": _get_api_key(), "accept": "application/json"}
 
 
-def _get(path: str, params: Optional[dict] = None) -> Any:
+def _get(path: str, params: Optional[dict] = None, *, _retries: int = 3) -> Any:
+    import time
     p = {k: v for k, v in (params or {}).items() if v is not None}
-    r = httpx.get(f"{BASE_URL}{path}", params=p, headers=_headers(), timeout=30)
-    r.raise_for_status()
-    return r.json()
+    url = f"{BASE_URL}{path}"
+    last_exc: Exception | None = None
+    for attempt in range(_retries):
+        try:
+            r = httpx.get(url, params=p, headers=_headers(), timeout=30)
+            if r.status_code == 403:
+                raise httpx.HTTPStatusError(
+                    f"403 Forbidden — endpoint may require a paid plan: {path}",
+                    request=r.request, response=r,
+                )
+            r.raise_for_status()
+            return r.json()
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError) as exc:
+            last_exc = exc
+            if attempt < _retries - 1:
+                time.sleep(1.5 * (attempt + 1))
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (429, 500, 502, 503, 504) and attempt < _retries - 1:
+                last_exc = exc
+                time.sleep(2.0 * (attempt + 1))
+            else:
+                raise
+    raise last_exc  # type: ignore[misc]
 
 
 # ── Subnets ───────────────────────────────────────────────────────────────────
@@ -291,12 +312,20 @@ def get_dtao_tao_flow(netuid=None, block_start=None, block_end=None,
     })
 
 def get_dtao_trades(coldkey=None, extrinsic_id=None, from_name=None, to_name=None,
-                    tao_value_min=None, tao_value_max=None, page=1, limit=50):
-    """dTAO alpha buy/sell trade history."""
+                    tao_value_min=None, tao_value_max=None,
+                    block_number=None, block_start=None, block_end=None,
+                    timestamp_start=None, timestamp_end=None, page=1, limit=50):
+    """dTAO alpha buy/sell trade history.
+
+    timestamp_start / timestamp_end: Unix seconds (per OpenAPI for /api/dtao/trade/v1).
+    """
     return _get("/api/dtao/trade/v1", {
         "coldkey": coldkey, "extrinsic_id": extrinsic_id,
         "from_name": from_name, "to_name": to_name,
         "tao_value_min": tao_value_min, "tao_value_max": tao_value_max,
+        "block_number": block_number,
+        "block_start": block_start, "block_end": block_end,
+        "timestamp_start": timestamp_start, "timestamp_end": timestamp_end,
         "page": page, "limit": limit,
     })
 
@@ -655,6 +684,13 @@ if __name__ == "__main__":
         p.add_argument("--ts-end", type=str, help="ISO 8601 timestamp_end")
         return p
 
+    def _trade_ts(v):
+        """dtao/trade/v1 attend des timestamps Unix en secondes (entier)."""
+        if v is None:
+            return None
+        s = str(v).strip()
+        return int(s) if s.isdigit() else v
+
     # ── Status
     S.add_parser("status", help="API service status")
     S.add_parser("stats", help="Network-wide statistics")
@@ -773,9 +809,10 @@ if __name__ == "__main__":
     p = _timerange(S.add_parser("dtao-tao-flow", help="TAO flow in/out of pools"))
     p.add_argument("--netuid", type=int)
 
-    p = _paged(S.add_parser("dtao-trades", help="dTAO alpha buy/sell trades"))
+    p = _paged(_timerange(S.add_parser("dtao-trades", help="dTAO alpha buy/sell trades")))
     p.add_argument("--coldkey"); p.add_argument("--from-name"); p.add_argument("--to-name")
     p.add_argument("--tao-min", type=float); p.add_argument("--tao-max", type=float)
+    p.add_argument("--block-number", type=int)
 
     # ── dTAO Stake
     p = _paged(S.add_parser("dtao-stake", help="Current dTAO alpha stake balances"))
@@ -922,7 +959,7 @@ if __name__ == "__main__":
             "dtao-pool-total-price":    lambda: get_dtao_pool_total_price(),
             "dtao-slippage":            lambda: get_dtao_slippage(a["netuid"], a["amount"], a["direction"]),
             "dtao-tao-flow":            lambda: get_dtao_tao_flow(a.get("netuid"), a.get("block_start"), a.get("block_end"), a.get("ts_start"), a.get("ts_end")),
-            "dtao-trades":              lambda: get_dtao_trades(a.get("coldkey"), from_name=a.get("from_name"), to_name=a.get("to_name"), tao_value_min=a.get("tao_min"), tao_value_max=a.get("tao_max"), page=a["page"], limit=a["limit"]),
+            "dtao-trades":              lambda: get_dtao_trades(a.get("coldkey"), from_name=a.get("from_name"), to_name=a.get("to_name"), tao_value_min=a.get("tao_min"), tao_value_max=a.get("tao_max"), block_number=a.get("block_number"), block_start=a.get("block_start"), block_end=a.get("block_end"), timestamp_start=_trade_ts(a.get("ts_start")), timestamp_end=_trade_ts(a.get("ts_end")), page=a["page"], limit=a["limit"]),
             "dtao-stake":               lambda: get_dtao_stake_balance(a.get("coldkey"), a.get("hotkey"), a.get("netuid"), balance_as_tao_min=a.get("balance_as_tao_min"), page=a["page"], limit=a["limit"]),
             "dtao-stake-history":       lambda: get_dtao_stake_balance_history(a.get("coldkey"), a.get("hotkey"), a.get("netuid"), a.get("block_start"), a.get("block_end"), a.get("ts_start"), a.get("ts_end"), a["page"], a["limit"]),
             "dtao-portfolio":           lambda: get_dtao_stake_portfolio(a.get("coldkey"), a.get("hotkey"), a.get("netuid"), a.get("days"), page=a["page"], limit=a["limit"]),
