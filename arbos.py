@@ -32,6 +32,7 @@ CONTEXT_DIR = WORKING_DIR / "context"
 GOALS_DIR = CONTEXT_DIR / "goals"
 GOALS_JSON = CONTEXT_DIR / "goals.json"
 WORKSPACES_DIR = CONTEXT_DIR / "workspace"
+DM_GOALS_DIR = CONTEXT_DIR / "dm"
 CHATLOG_DIR = CONTEXT_DIR / "chat"
 FILES_DIR = CONTEXT_DIR / "files"
 RESTART_FLAG = WORKING_DIR / ".restart"
@@ -411,7 +412,6 @@ class GoalState:
     goal_hash: str = ""
     last_run: str = ""
     last_finished: str = ""
-    notify_chat_id: int = 0  # Telegram chat to send step notifications (0 = use chat_id.txt fallback)
     thread: threading.Thread | None = field(default=None, repr=False)
     wake: threading.Event = field(default_factory=threading.Event, repr=False)
     stop_event: threading.Event = field(default_factory=threading.Event, repr=False)
@@ -423,16 +423,24 @@ _goals_lock = threading.Lock()
 # Telegram “Discord-like” workspaces: one map per supergroup chat_id (negative int).
 _tg_workspace_goals: dict[int, dict[int, GoalState]] = {}
 
+# DM goals: one map per DM chat_id (positive int) — isolated per user.
+_tg_dm_goals: dict[int, dict[int, GoalState]] = {}
+
 
 def _goal_dir(index: int, workspace_id: int = 0) -> Path:
+    """Goal directory: workspace_id<0 → workspace group, >0 → DM chat, 0 → legacy CLI."""
     if workspace_id == 0:
         return GOALS_DIR / str(index)
+    if workspace_id > 0:
+        return DM_GOALS_DIR / str(workspace_id) / "goals" / str(index)
     return WORKSPACES_DIR / str(workspace_id) / "goals" / str(index)
 
 
 def _goals_json_path(workspace_id: int) -> Path:
     if workspace_id == 0:
         return GOALS_JSON
+    if workspace_id > 0:
+        return DM_GOALS_DIR / str(workspace_id) / "goals.json"
     return WORKSPACES_DIR / str(workspace_id) / "goals.json"
 
 
@@ -440,6 +448,12 @@ def _tg_goals_map(workspace_id: int) -> dict[int, GoalState]:
     if workspace_id not in _tg_workspace_goals:
         _tg_workspace_goals[workspace_id] = {}
     return _tg_workspace_goals[workspace_id]
+
+
+def _tg_dm_goals_map(dm_chat_id: int) -> dict[int, GoalState]:
+    if dm_chat_id not in _tg_dm_goals:
+        _tg_dm_goals[dm_chat_id] = {}
+    return _tg_dm_goals[dm_chat_id]
 
 
 def _goal_file(index: int, workspace_id: int = 0) -> Path:
@@ -471,6 +485,8 @@ def _step_msg_file(index: int, workspace_id: int = 0) -> Path:
 def _goal_ctx_rel_path(goal_index: int, workspace_id: int = 0) -> str:
     if workspace_id == 0:
         return f"context/goals/{goal_index}/"
+    if workspace_id > 0:
+        return f"context/dm/{workspace_id}/goals/{goal_index}/"
     return f"context/workspace/{workspace_id}/goals/{goal_index}/"
 
 
@@ -486,19 +502,18 @@ def _serialize_goal_entry(gs: GoalState) -> dict[str, Any]:
         "last_run": gs.last_run,
         "last_finished": gs.last_finished,
     }
-    if gs.notify_chat_id:
-        d["notify_chat_id"] = gs.notify_chat_id
     return d
 
 
 def _save_goals(workspace_id: int = 0):
-    """Persist goal metadata for legacy (0) or a Telegram workspace supergroup. Caller must hold _goals_lock."""
+    """Persist goal metadata. workspace_id: 0=legacy CLI, <0=workspace group, >0=DM chat. Caller must hold _goals_lock."""
     if workspace_id == 0:
         goals_map = _goals
-        jf = GOALS_JSON
+    elif workspace_id > 0:
+        goals_map = _tg_dm_goals_map(workspace_id)
     else:
         goals_map = _tg_goals_map(workspace_id)
-        jf = _goals_json_path(workspace_id)
+    jf = _goals_json_path(workspace_id)
     data = {str(idx): _serialize_goal_entry(gs) for idx, gs in goals_map.items()}
     jf.parent.mkdir(parents=True, exist_ok=True)
     jf.write_text(json.dumps(data, indent=2))
@@ -527,36 +542,51 @@ def _load_goals_json_into(workspace_id: int, goals_map: dict[int, GoalState]):
             goal_hash=info.get("goal_hash", ""),
             last_run=info.get("last_run", ""),
             last_finished=info.get("last_finished", ""),
-            notify_chat_id=info.get("notify_chat_id", 0),
         )
 
 
 def _load_goals():
-    """Load goal metadata: legacy context/goals + configured Telegram workspace dirs."""
+    """Load goal metadata: legacy context/goals + workspace groups + DM chats."""
     global _goals
     _load_goals_json_into(0, _goals)
+    # Workspace groups
     allowed = _telegram_workspace_group_ids_from_env()
-    if not allowed or not WORKSPACES_DIR.exists():
-        return
-    for ws_dir in sorted(WORKSPACES_DIR.iterdir()):
-        if not ws_dir.is_dir():
-            continue
-        try:
-            ws_id = int(ws_dir.name)
-        except ValueError:
-            continue
-        if ws_id not in allowed:
-            continue
-        jf = ws_dir / "goals.json"
-        if not jf.exists() and not (ws_dir / "goals").exists():
-            continue
-        gmap = _tg_goals_map(ws_id)
-        _load_goals_json_into(ws_id, gmap)
+    if allowed and WORKSPACES_DIR.exists():
+        for ws_dir in sorted(WORKSPACES_DIR.iterdir()):
+            if not ws_dir.is_dir():
+                continue
+            try:
+                ws_id = int(ws_dir.name)
+            except ValueError:
+                continue
+            if ws_id not in allowed:
+                continue
+            jf = ws_dir / "goals.json"
+            if not jf.exists() and not (ws_dir / "goals").exists():
+                continue
+            gmap = _tg_goals_map(ws_id)
+            _load_goals_json_into(ws_id, gmap)
+    # DM chats (context/dm/<chat_id>/)
+    if DM_GOALS_DIR.exists():
+        for dm_dir in sorted(DM_GOALS_DIR.iterdir()):
+            if not dm_dir.is_dir():
+                continue
+            try:
+                dm_id = int(dm_dir.name)
+            except ValueError:
+                continue
+            jf = dm_dir / "goals.json"
+            if not jf.exists() and not (dm_dir / "goals").exists():
+                continue
+            gmap = _tg_dm_goals_map(dm_id)
+            _load_goals_json_into(dm_id, gmap)
 
 
 def _total_registered_goals() -> int:
     n = len(_goals)
     for g in _tg_workspace_goals.values():
+        n += len(g)
+    for g in _tg_dm_goals.values():
         n += len(g)
     return n
 
@@ -920,10 +950,11 @@ def _step_update_target() -> tuple[str, str] | None:
     return token, chat_id
 
 
-def _telegram_step_target(workspace_id: int = 0, notify_chat_id: int = 0) -> tuple[str, str] | None:
+def _telegram_step_target(workspace_id: int = 0) -> tuple[str, str] | None:
     """Telegram (token, chat_id) for goal-step status messages.
 
-    Priority: workspace_id > notify_chat_id (from GoalState) > chat_id.txt fallback.
+    workspace_id != 0 → send directly (works for both workspace groups and DM chats).
+    workspace_id == 0 → legacy CLI fallback via chat_id.txt.
     """
     token = os.getenv("TAU_BOT_TOKEN")
     if not token:
@@ -931,8 +962,6 @@ def _telegram_step_target(workspace_id: int = 0, notify_chat_id: int = 0) -> tup
         return None
     if workspace_id != 0:
         return token, str(workspace_id)
-    if notify_chat_id:
-        return token, str(notify_chat_id)
     return _step_update_target()
 
 
@@ -2516,7 +2545,7 @@ def extract_text(result: subprocess.CompletedProcess) -> str:
 
 
 def run_step(prompt: str, step_number: int, goal_index: int = 0, goal_step: int = 0,
-             workspace_id: int = 0, notify_chat_id: int = 0) -> bool:
+             workspace_id: int = 0) -> bool:
     run_dir = make_run_dir(goal_index=goal_index, workspace_id=workspace_id)
     t0 = time.monotonic()
 
@@ -2525,7 +2554,7 @@ def run_step(prompt: str, step_number: int, goal_index: int = 0, goal_step: int 
 
     smf = _step_msg_file(goal_index, workspace_id) if goal_index else CONTEXT_DIR / ".step_msg"
 
-    target = _telegram_step_target(workspace_id, notify_chat_id=notify_chat_id)
+    target = _telegram_step_target(workspace_id)
     step_label = f"Goal #{goal_index} Step {goal_step}" if goal_index else f"Step {step_number}"
     step_msg_id: int | None = None
     step_msg_text = ""
@@ -2720,19 +2749,24 @@ def _auto_push_if_profitable(step_num: int, goal_index: int = 1):
 
 
 def _goal_loop(workspace_id: int, index: int):
-    """Run the agent loop for a single goal (legacy workspace_id=0 or Telegram supergroup id)."""
+    """Run the agent loop for a single goal (0=legacy CLI, <0=workspace group, >0=DM chat)."""
     global _step_count
 
     with _goals_lock:
-        goals_map = _goals if workspace_id == 0 else _tg_goals_map(workspace_id)
+        if workspace_id == 0:
+            goals_map = _goals
+        elif workspace_id > 0:
+            goals_map = _tg_dm_goals_map(workspace_id)
+        else:
+            goals_map = _tg_goals_map(workspace_id)
         gs = goals_map.get(index)
     if not gs:
         return
 
     failures = 0
     gf = _goal_file(index, workspace_id)
-    # Notification target: workspace group for workspace goals, notify_chat_id for legacy DM goals
-    tg_notify = workspace_id if workspace_id else (gs.notify_chat_id or None)
+    # workspace_id IS the chat_id for both workspace groups and DM chats
+    tg_notify = workspace_id if workspace_id else None
     ws_tag = f" ws={workspace_id}" if workspace_id else ""
 
     while not gs.stop_event.is_set():
@@ -2782,7 +2816,7 @@ def _goal_loop(workspace_id: int, index: int):
 
         success = run_step(
             prompt, _step_count, goal_index=index, goal_step=gs.step_count,
-            workspace_id=workspace_id, notify_chat_id=gs.notify_chat_id,
+            workspace_id=workspace_id,
         )
 
         gs.last_finished = datetime.now().isoformat()
@@ -2873,12 +2907,14 @@ def _goal_manager_tick_map(goals_map: dict[int, GoalState], workspace_id: int):
 
 
 def _goal_manager():
-    """Monitor goals (legacy + Telegram workspaces) and spawn/stop goal threads."""
+    """Monitor goals (legacy CLI + Telegram workspaces + DM chats) and spawn/stop goal threads."""
     while not _shutdown.is_set():
         with _goals_lock:
             _goal_manager_tick_map(_goals, 0)
             for ws_id, gmap in list(_tg_workspace_goals.items()):
                 _goal_manager_tick_map(gmap, ws_id)
+            for dm_id, gmap in list(_tg_dm_goals.items()):
+                _goal_manager_tick_map(gmap, dm_id)
         _shutdown.wait(timeout=2)
 
 
@@ -3009,6 +3045,14 @@ def _recent_context(max_chars: int = 6000) -> str:
             for d in runs_dir.iterdir():
                 if d.is_dir():
                     all_runs.append((f"ws{ws_id}/goal#{idx}/{d.name}", d))
+    for dm_id, gmap in sorted(_tg_dm_goals.items()):
+        for idx, gs in sorted(gmap.items()):
+            runs_dir = _goal_runs_dir(idx, dm_id)
+            if not runs_dir.exists():
+                continue
+            for d in runs_dir.iterdir():
+                if d.is_dir():
+                    all_runs.append((f"dm{dm_id}/goal#{idx}/{d.name}", d))
     all_runs.sort(key=lambda x: x[1].name, reverse=True)
     for label, run_dir in all_runs:
         f = run_dir / "rollout.md"
@@ -3038,16 +3082,24 @@ def _build_operator_prompt(
 
     if telegram_workspace_id:
         wid = telegram_workspace_id
-        ws_glob = f"context/workspace/{wid}/goals/<index>/"
+        if wid < 0:
+            # Workspace supergroup
+            goals_base = f"context/workspace/{wid}/goals/<index>"
+            scope_label = f"Telegram supergroup workspace (chat id `{wid}`)"
+            forum_note = "In **forum** supergroups, `/goal` creates a **topic**; the goal index equals Telegram `message_thread_id`. "
+        else:
+            # DM chat
+            goals_base = f"context/dm/{wid}/goals/<index>"
+            scope_label = f"Telegram DM (chat id `{wid}`)"
+            forum_note = ""
         multi_goal_block = (
-            "## Multi-goal system (Telegram workspace)\n\n"
-            f"This chat is a **Telegram supergroup workspace** (chat id `{wid}`). "
-            f"Goals live under **`{ws_glob}`** (same layout as legacy: GOAL.md, STATE.md, INBOX.md, runs/). "
-            "In **forum** supergroups, `/goal` creates a **topic**; the goal index equals Telegram `message_thread_id`. "
-            "Commands from this chat only affect goals in this workspace.\n\n"
+            f"## Multi-goal system ({scope_label})\n\n"
+            f"Goals live under **`{goals_base}/`** (GOAL.md, STATE.md, INBOX.md, runs/). "
+            f"{forum_note}"
+            "Commands from this chat only affect goals in this scope.\n\n"
             "## Available operations\n\n"
-            f"- **Message a goal's agent**: append to `context/workspace/{wid}/goals/<index>/INBOX.md`.\n"
-            f"- **Update a goal's state**: write to `context/workspace/{wid}/goals/<index>/STATE.md`.\n"
+            f"- **Message a goal's agent**: append to `{goals_base}/INBOX.md`.\n"
+            f"- **Update a goal's state**: write to `{goals_base}/STATE.md`.\n"
         )
     else:
         multi_goal_block = (
@@ -3096,8 +3148,13 @@ def _build_operator_prompt(
                 f"{goal_text}\nState: {state_text}",
             )
     if telegram_workspace_id:
-        gmap = _tg_goals_map(telegram_workspace_id)
         w = telegram_workspace_id
+        if w < 0:
+            gmap = _tg_goals_map(w)
+            scope_label = f"Workspace `{w}`"
+        else:
+            gmap = _tg_dm_goals_map(w)
+            scope_label = f"DM `{w}`"
         for idx in sorted(gmap.keys()):
             gs = gmap[idx]
             status = _goal_status_label(gs)
@@ -3106,7 +3163,7 @@ def _build_operator_prompt(
             sf = _state_file(idx, w)
             state_text = sf.read_text().strip()[:200] if sf.exists() else "(empty)"
             goals_section.append(
-                f"### Workspace `{w}` goal #{idx} [{status}] (delay: {gs.delay}s, step {gs.step_count})\n"
+                f"### {scope_label} goal #{idx} [{status}] (delay: {gs.delay}s, step {gs.step_count})\n"
                 f"{goal_text}\nState: {state_text}",
             )
 
@@ -3241,9 +3298,15 @@ def _stop_all_ralph_goal_autorun():
             for gs in gmap.values():
                 gs.started = False
                 gs.paused = False
+        for _did, gmap in list(_tg_dm_goals.items()):
+            for gs in gmap.values():
+                gs.started = False
+                gs.paused = False
         _save_goals(0)
         for wid in list(_tg_workspace_goals.keys()):
             _save_goals(wid)
+        for did in list(_tg_dm_goals.keys()):
+            _save_goals(did)
 
 
 def _telegram_send_final_chunks(
@@ -3728,9 +3791,14 @@ def run_bot():
         _log(f"Telegram workspace groups (per-group context/): {sorted(workspace_group_ids)}")
 
     def _goals_map_for_chat(cid: int) -> tuple[dict[int, GoalState], int]:
+        """Return (goals_map, scope_id) for a Telegram chat.
+
+        Workspace groups (negative cid) → workspace map.
+        DM chats (positive cid) → per-DM map.
+        """
         if cid in workspace_group_ids:
             return _tg_goals_map(cid), cid
-        return _goals, 0
+        return _tg_dm_goals_map(cid), cid
 
     def _ensure_tg_workspace_meta(cid: int, title: str | None):
         base = WORKSPACES_DIR / str(cid)
@@ -3927,8 +3995,10 @@ def run_bot():
                 bot.send_message(cid, f"No goals in this workspace. Total steps: {_step_count}")
                 return
             lines = [f"Total steps: {_step_count}"]
-            if ws:
+            if cid in workspace_group_ids:
                 lines.append(f"Workspace: `{ws}` (goals on disk: context/workspace/{ws}/)")
+            elif ws > 0:
+                lines.append(f"DM scope: `{ws}` (goals on disk: context/dm/{ws}/)")
             for idx in sorted(gmap.keys()):
                 gs = gmap[idx]
                 status = _goal_status_label(gs)
@@ -4106,7 +4176,7 @@ def run_bot():
             bot.send_message(cid, "Usage: /goal <your goal text>")
             return
         goal_text = text[1].strip()
-        if ws:
+        if cid in workspace_group_ids:
             _ensure_tg_workspace_meta(cid, message.chat.title)
         send_kw: dict[str, Any] = {}
         th0 = _forum_reply_thread(message)
@@ -4116,7 +4186,7 @@ def run_bot():
         summary = _summarize_goal(goal_text)
         new_idx: int | None = None
         body = goal_text
-        if ws and getattr(message.chat, "is_forum", False):
+        if cid in workspace_group_ids and getattr(message.chat, "is_forum", False):
             topic_line = goal_text.split("\n", 1)[0].strip()[:128] or (
                 summary[:128] if summary else "goal"
             )
@@ -4140,9 +4210,6 @@ def run_bot():
             else:
                 idx = max(gmap.keys(), default=0) + 1
             gs = GoalState(index=idx, summary=summary)
-            # Legacy goals (ws=0): store the DM chat_id for notification routing
-            if not ws:
-                gs.notify_chat_id = cid
             gmap[idx] = gs
             gdir = _goal_dir(idx, ws)
             gdir.mkdir(parents=True, exist_ok=True)
@@ -4150,18 +4217,13 @@ def run_bot():
             _state_file(idx, ws).write_text("")
             _inbox_file(idx, ws).write_text("")
             _goal_runs_dir(idx, ws).mkdir(parents=True, exist_ok=True)
-            if ws:
-                gs.started = True
-                gs.paused = False
-                gs.wake.set()
+            gs.started = True
+            gs.paused = False
+            gs.wake.set()
             _save_goals(ws)
         detail = (
             f"Goal #{idx} created: {summary}\n"
-            + (
-                "**Loop started** (Discord-style). Commands: /pause /unpause /force /delay"
-                if ws
-                else f"Use /start {idx} to begin."
-            )
+            "**Loop started.** Commands: /pause /unpause /force /delay"
             + (f"\n(Forum topic id {idx}.)" if new_idx else "")
         )
         bot.edit_message_text(detail, cid, msg.message_id)
@@ -4229,15 +4291,21 @@ def run_bot():
                     gs.wake.set()
                 gmap.clear()
                 _save_goals(ws)
-            d = WORKSPACES_DIR / str(ws)
+            if ws < 0:
+                d = WORKSPACES_DIR / str(ws)
+                scope_label = f"workspace `{ws}` (`context/workspace/{ws}/`)"
+            else:
+                d = DM_GOALS_DIR / str(ws)
+                scope_label = f"DM `{ws}` (`context/dm/{ws}/`)"
             if d.exists():
                 shutil.rmtree(d, ignore_errors=True)
-            _ensure_tg_workspace_meta(cid, message.chat.title)
+            if ws < 0:
+                _ensure_tg_workspace_meta(cid, message.chat.title)
             bot.send_message(
                 cid,
-                f"Cleared Telegram workspace `{ws}` (`context/workspace/{ws}/`).\nReady for a fresh /goal.",
+                f"Cleared {scope_label}.\nReady for a fresh /goal.",
             )
-            _log(f"cleared workspace {ws} via /clear")
+            _log(f"cleared {scope_label} via /clear")
             return
         with _goals_lock:
             for gs in _goals.values():
@@ -4519,7 +4587,7 @@ def run_bot():
             telegram_user_id=uid,
             telegram_shared_room_id=rid,
         )
-        tw = cid if cid in workspace_group_ids else 0
+        tw = cid
         if _is_owner(uid):
             topic_g = _active_topic_goal_key(message, cid)
             prompt = _build_operator_prompt(
@@ -4646,7 +4714,7 @@ def run_bot():
 
         cid = message.chat.id
         rid = cid if cid < 0 else None
-        tw = cid if cid in workspace_group_ids else 0
+        tw = cid
         log_chat(
             "user", user_text[:1000], telegram_user_id=uid, telegram_shared_room_id=rid,
         )
@@ -4741,7 +4809,7 @@ def run_bot():
         log_chat(
             "user", user_text[:1000], telegram_user_id=uid, telegram_shared_room_id=rid,
         )
-        tw = cid if cid in workspace_group_ids else 0
+        tw = cid
         if _is_owner(uid):
             topic_g = _active_topic_goal_key(message, cid)
             prompt = _build_operator_prompt(
@@ -4817,7 +4885,7 @@ def run_bot():
         log_chat(
             "user", user_text[:1000], telegram_user_id=uid, telegram_shared_room_id=rid,
         )
-        tw = cid if cid in workspace_group_ids else 0
+        tw = cid
         if _is_owner(uid):
             topic_g = _active_topic_goal_key(message, cid)
             prompt = _build_operator_prompt(
@@ -4900,7 +4968,7 @@ def run_bot():
             log_chat(
                 "user", text, telegram_user_id=uid, telegram_shared_room_id=rid,
             )
-            tw = 0
+            tw = cid  # DM scope: goals in context/dm/<cid>/
             topic_g = _active_topic_goal_key(message, cid)
             prompt = _build_operator_prompt(
                 _telegram_reply_prefix(message) + text,
@@ -5120,6 +5188,7 @@ def main() -> None:
     CONTEXT_DIR.mkdir(parents=True, exist_ok=True)
     GOALS_DIR.mkdir(parents=True, exist_ok=True)
     WORKSPACES_DIR.mkdir(parents=True, exist_ok=True)
+    DM_GOALS_DIR.mkdir(parents=True, exist_ok=True)
 
     _load_goals()
     _ensure_telegram_qa_fixed_goal()
@@ -5129,7 +5198,7 @@ def main() -> None:
             "Ralph goals idle until /start <n> "
             "(GOALS_BACKGROUND_AUTORUN default off when Telegram group IDs are set)",
         )
-    _log(f"loaded {_total_registered_goals()} goal(s) (legacy + Telegram workspaces)")
+    _log(f"loaded {_total_registered_goals()} goal(s) (legacy + workspaces + DMs)")
 
     if FALLBACK_PROVIDER == "opencode":
         _log(f"fallback configured: opencode/{FALLBACK_MODEL}")
